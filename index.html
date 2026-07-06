@@ -7940,6 +7940,16 @@ function destroySinglePart(mesh) {
 let historyStack = [];
 const MAX_HISTORY = 20;
 
+// Generated meshes (WG worlds, code-gen structures) carry real geometry but no
+// editor `def`. Serialized as {def:undefined} they made every peer's applyState
+// throw on data.def.c and SILENTLY SKIP them — so co-built generated geometry
+// never crossed the wire. Synthesize a def from the mesh's own material colour so
+// it survives the round-trip (rebuilt as a dims-accurate solid on peers).
+function synthDef(src) {
+    let c = 0x8a8f98;
+    try { const col = src && src.material && src.material.color; if (col && col.getHex) c = col.getHex(); } catch (_) {}
+    return { c, ec: 0x19e6c8 };
+}
 function getSerializedState() {
     // Rhetoric agents are performative bodies, not arena geometry: they ride
     // the state channel (msg.agents), never the snapshot. Without this filter
@@ -7950,14 +7960,14 @@ function getSerializedState() {
                 id: obj.userData.id, isAssembly: true, name: obj.userData.name, ownerBotId: obj.userData.ownerBotId || null, fort: !!obj.userData.fort,
                 pos: obj.position.toArray(), rot: obj.quaternion.toArray(), scale: obj.scale.toArray(),
                 children: obj.children.map(c => ({
-                    type: c.userData.type, name: c.userData.name, dims: { ...c.userData.dims }, def: c.userData.def,
+                    type: c.userData.type, name: c.userData.name, dims: { ...c.userData.dims }, def: c.userData.def || synthDef(c),
                     animType: c.userData.animType, animAxis: c.userData.animAxis, animSpeed: c.userData.animSpeed, animRange: c.userData.animRange,
                     pos: c.position.toArray(), rot: c.quaternion.toArray(), scale: c.scale.toArray()
                 }))
             };
         } else {
             return {
-                id: obj.userData.id, isAssembly: false, type: obj.userData.type, name: obj.userData.name, ownerBotId: obj.userData.ownerBotId || null, fort: !!obj.userData.fort, dims: { ...obj.userData.dims }, def: obj.userData.def,
+                id: obj.userData.id, isAssembly: false, type: obj.userData.type, name: obj.userData.name, ownerBotId: obj.userData.ownerBotId || null, fort: !!obj.userData.fort, dims: { ...obj.userData.dims }, def: obj.userData.def || synthDef(obj),
                 animType: obj.userData.animType, animAxis: obj.userData.animAxis, animSpeed: obj.userData.animSpeed, animRange: obj.userData.animRange,
                 pos: obj.position.toArray(), rot: obj.quaternion.toArray(), scale: obj.scale.toArray()
             };
@@ -8021,13 +8031,14 @@ function applyState(state) {
             assembly.userData = { id: data.id, type: 'assembly', name: data.name, isAssembly: true, scale: data.scale[0], ownerBotId: data.ownerBotId || null, fort: !!data.fort };
             
             data.children.forEach(cData => {
+                const cdef = cData.def || { c: 0x8a8f98, ec: 0x19e6c8 };   // never drop a co-builder's part over a missing def
                 let geo = ComponentRegistry.createGeometry(cData.type, cData.dims);
-                const mesh = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({color: cData.def.c}));
+                const mesh = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({color: cdef.c}));
                 mesh.position.fromArray(cData.pos); mesh.quaternion.fromArray(cData.rot); mesh.scale.fromArray(cData.scale);
-                
-                const edge = new THREE.LineSegments(new THREE.EdgesGeometry(geo), new THREE.LineBasicMaterial({color: cData.def.ec}));
+
+                const edge = new THREE.LineSegments(new THREE.EdgesGeometry(geo), new THREE.LineBasicMaterial({color: cdef.ec}));
                 mesh.add(edge);
-                mesh.userData = { id: crypto.randomUUID(), type: cData.type, name: cData.name, dims: cData.dims, def: cData.def, edgeRef: edge,
+                mesh.userData = { id: crypto.randomUUID(), type: cData.type, name: cData.name, dims: cData.dims, def: cdef, edgeRef: edge,
                                   animType: cData.animType, animAxis: cData.animAxis, animSpeed: cData.animSpeed, animRange: cData.animRange };
                 
                 assembly.add(mesh);
@@ -8035,13 +8046,14 @@ function applyState(state) {
             });
             scene.add(assembly); selectableObjects.push(assembly);
         } else {
+            const ddef = data.def || { c: 0x8a8f98, ec: 0x19e6c8 };   // never drop a co-builder's object over a missing def
             let geo = ComponentRegistry.createGeometry(data.type, data.dims);
-            const mesh = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({color: data.def.c}));
+            const mesh = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({color: ddef.c}));
             mesh.position.fromArray(data.pos); mesh.quaternion.fromArray(data.rot); mesh.scale.fromArray(data.scale);
-            
-            const edge = new THREE.LineSegments(new THREE.EdgesGeometry(geo), new THREE.LineBasicMaterial({color: data.def.ec}));
+
+            const edge = new THREE.LineSegments(new THREE.EdgesGeometry(geo), new THREE.LineBasicMaterial({color: ddef.ec}));
             mesh.add(edge);
-            mesh.userData = { id: data.id, type: data.type, name: data.name, ownerBotId: data.ownerBotId || null, fort: !!data.fort, dims: data.dims, def: data.def, edgeRef: edge,
+            mesh.userData = { id: data.id, type: data.type, name: data.name, ownerBotId: data.ownerBotId || null, fort: !!data.fort, dims: data.dims, def: ddef, edgeRef: edge,
                               animType: data.animType, animAxis: data.animAxis, animSpeed: data.animSpeed, animRange: data.animRange };
             
             scene.add(mesh); selectableObjects.push(mesh); physicsMeshes.push(mesh);
