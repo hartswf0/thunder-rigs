@@ -3214,14 +3214,23 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
     const THREE = ctx.THREE, VG = ctx.VG;
     const maxMeshes = ctx.maxMeshes || MESH_MAX;
     const g = new THREE.Group();
+    // Expose every VG helper as a top-level binding so vehicle code can call a
+    // helper it forgot to destructure from VG (e.g. `headlight(...)` — a common
+    // model slip). Without this the rig throws "X is not defined" and never
+    // renders — locally AND again when a peer rebuilds the shared vcode, so the
+    // build "won't share". The build body's own `const {box,...}=VG` lives in the
+    // nested build() scope and harmlessly shadows these. Filter to valid, non-
+    // colliding identifiers so strict mode can't trip on a duplicate parameter.
+    const reserved = new Set(['g', 'VG', 'THREE', 'Math', ...SHADOWED]);
+    const vgKeys = Object.keys(VG).filter(k => /^[A-Za-z_$][\w$]*$/.test(k) && !reserved.has(k));
     let fn;
     try {
-      fn = new Function('g', 'VG', 'THREE', 'Math', ...SHADOWED,
+      fn = new Function('g', 'VG', 'THREE', 'Math', ...SHADOWED, ...vgKeys,
         '"use strict";\n' + code + '\n;if(typeof build==="function"){build(g,VG,THREE);}');
     } catch (e) { return { ok: false, stage: 'compile', err: e.message }; }
     try {
       const t0 = Date.now();
-      fn(g, VG, THREE, Math, ...SHADOWED.map(() => undefined));
+      fn(g, VG, THREE, Math, ...SHADOWED.map(() => undefined), ...vgKeys.map(k => VG[k]));
       const ms = Date.now() - t0;
       const meshes = countMeshes(g);
       if (!meshes) return { ok: false, stage: 'execute', err: 'built zero meshes' };
@@ -6728,7 +6737,12 @@ function rigTransmitSpec(spec) {
     };
     // FREEFORM rig: carry the ritual-built parts so other players see the exact same build.
     if (spec && Array.isArray(spec.rp) && spec.rp.length) out.rp = spec.rp.slice(0, 24);
-    if (spec && typeof spec.vcode === 'string' && spec.vcode.length) out.vcode = spec.vcode.slice(0, 8000);   // CODE-GEN vehicle
+    // CODE-GEN vehicle: transmit the FULL source so a peer rebuilds it exactly.
+    // NEVER slice — truncated JS won't parse on the peer (that silently broke
+    // sharing of any rig over the old 8000-char cap). If a rig is larger than the
+    // ceiling, omit vcode so the peer falls back to the parametric spec instead of
+    // choking on broken code. 20k comfortably fits a max-mesh (220) forge rig.
+    if (spec && typeof spec.vcode === 'string' && spec.vcode.length && spec.vcode.length <= 20000) out.vcode = spec.vcode;
     return out;
 }
 function parseRigPrompt(prompt, base) {
