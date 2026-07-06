@@ -7041,6 +7041,43 @@ function roomSend(msg) {
         body: JSON.stringify({ peerId: currentPeerId, msg })
     }, 12000).catch(err => { NETLOG('error', 'send ' + msg.type + ': ' + err.message); console.warn('room send failed', err); return null; });
 }
+// ── SHARED WORLD — vehicle-style code sync ──────────────────────────────────
+// A generated world can't ride the primitive arena channel (its custom shapes
+// have no {type,dims}; it serializes as dims:null and peers rebuild NaN boxes).
+// So the WORLD travels as its GENERATION CODE, exactly like a rig's vcode:
+// broadcast the code, each peer regenerates the identical world via the forge
+// (window.__applyForgeWorld). Latest generation wins.
+let applyingRemoteWorld = false;   // guard: never rebroadcast a world we just received
+let lastWorldHash = '';            // dedup: skip a world we already built
+function broadcastWorldCode(code, hash) {
+    if (!currentRoom || !currentPeerId || applyingRemoteWorld) return;
+    if (!code || typeof code !== 'string') return;
+    if (hash) lastWorldHash = hash;
+    roomSend({ type: 'world', code, hash: hash || '', t: Date.now() });
+    NETLOG('world', 'broadcast ' + code.length + ' chars');
+}
+window.__broadcastWorldCode = broadcastWorldCode;
+function applyRemoteWorld(msg) {
+    const code = msg && msg.code, hash = (msg && msg.hash) || '';
+    if (!code || typeof code !== 'string' || typeof window.__applyForgeWorld !== 'function') return;
+    if (hash && hash === lastWorldHash) return;   // already built this exact world
+    applyingRemoteWorld = true;
+    try {
+        const r = window.__applyForgeWorld(code);
+        if (r && r.ok) { lastWorldHash = hash || (r.cert && r.cert.hash) || lastWorldHash; notify('ROOM WORLD SYNCED'); }
+        else { console.warn('applyRemoteWorld: forge failed', r && r.err); }
+    } catch (e) { console.warn('applyRemoteWorld', e); }
+    finally { applyingRemoteWorld = false; }
+}
+// Late join: when a new peer appears, the host re-sends the current world so the
+// newcomer regenerates it. Everyone (incl. host) applies every world, so the
+// host's __wgLastWorld is always the latest; dedup-by-hash makes re-sends cheap.
+function pushWorldToNewPeers() {
+    if (currentRole !== 'host' || !currentRoom || !currentPeerId || applyingRemoteWorld) return;
+    const w = window.__wgLastWorld;
+    if (!w || !w.ok || !w.code) return;
+    roomSend({ type: 'world', code: w.code, hash: (w.cert && w.cert.hash) || '', t: Date.now() });
+}
 function setRoomStatus(text, color = '#aaa') {
     const el = document.getElementById('mp-status');
     if (el) { el.textContent = text; el.style.color = color; }
@@ -7133,6 +7170,15 @@ function pollRoom() {
         .then(data => {
             currentRoomSeq = Math.max(currentRoomSeq, data.seq || currentRoomSeq);
             remotePeers = {}; (data.peers || []).forEach(p => { remotePeers[p.id] = p; });
+            // LATE JOIN: if a peer appeared since the last poll, the host re-sends the
+            // current world so the newcomer regenerates it (dedup-by-hash on receive).
+            try {
+                const nowIds = new Set(Object.keys(remotePeers));
+                const prev = window.__prevPeerIds || new Set();
+                let fresh = false; nowIds.forEach(id => { if (id !== currentPeerId && !prev.has(id)) fresh = true; });
+                window.__prevPeerIds = nowIds;
+                if (fresh && typeof pushWorldToNewPeers === 'function') pushWorldToNewPeers();
+            } catch(_){}
             const selfPeer = (data.peers || []).find(p => p.id === currentPeerId);
             if (selfPeer?.role && selfPeer.role !== currentRole) { currentRole = selfPeer.role; renderBotList(true); }
             Object.keys(remoteCars).forEach(peerId => {
@@ -7173,6 +7219,7 @@ function handleRoomMessage(entry) {
         return addChatLine(msg.name || remotePeers[entry.from]?.name || 'PLAYER', msg.text || '', false, 'in');
     }
     if (msg.type === 'snapshot') return fetchRoomSnapshot(msg.version);
+    if (msg.type === 'world') return applyRemoteWorld(msg);   // shared world, regenerated from its code
     if (msg.type === 'edit') return applyArenaOps(entry.from, msg);
     if (msg.type === 'arena-req') { if (currentRole === 'host' && entry.from !== currentPeerId) sendArenaFull(); return; }
     if (msg.type === 'arena') return handleArenaPart(entry.from, msg);
@@ -7954,7 +8001,11 @@ function getSerializedState() {
     // Rhetoric agents are performative bodies, not arena geometry: they ride
     // the state channel (msg.agents), never the snapshot. Without this filter
     // every decoy injected a dims-less 'agent' row into the shared arena.
-    return selectableObjects.filter(obj => !obj.userData.isAgent).map(obj => {
+    // GENERATED geometry (_ritualWorld: WG worlds + forts) is ALSO excluded:
+    // its custom shapes have no {type,dims} to rebuild from, so it serialized as
+    // dims:null and every peer rebuilt NaN boxes — destroying the original on any
+    // sync. It travels by its GENERATION CODE instead (see broadcastWorldCode).
+    return selectableObjects.filter(obj => !obj.userData.isAgent && !obj.userData._ritualWorld).map(obj => {
         if (obj.userData.isAssembly) {
             return {
                 id: obj.userData.id, isAssembly: true, name: obj.userData.name, ownerBotId: obj.userData.ownerBotId || null, fort: !!obj.userData.fort,
@@ -8005,8 +8056,13 @@ function applyState(state) {
     // HIDE & SNEAK: rhetoric agents are performative bodies, not arena geometry.
     // Every rebuild (snapshot, undo, clear, shared-field merge) must carry them
     // across untouched instead of disposing live decoys under the closure.
-    const carriedAgents = selectableObjects.filter(o => o.userData.isAgent);
-    selectableObjects.filter(o => !o.userData.isAgent).forEach(obj => {
+    // GENERATED geometry (_ritualWorld: WG worlds + forts) is carried across the
+    // SAME way — the primitive channel would otherwise dispose it and rebuild NaN
+    // boxes from its dims:null rows (that was "it just deletes things"). It is
+    // synced by generation code, not by this lossy row rebuild, so it must never
+    // be destroyed here. Its collision meshes are kept in physicsMeshes too.
+    const carriedKeep = selectableObjects.filter(o => o.userData.isAgent || o.userData._ritualWorld);
+    selectableObjects.filter(o => !o.userData.isAgent && !o.userData._ritualWorld).forEach(obj => {
         scene.remove(obj);
         if (obj.userData.isAssembly) {
             obj.children.forEach(c => {
@@ -8020,8 +8076,8 @@ function applyState(state) {
             if (obj.userData.edgeRef) { obj.userData.edgeRef.geometry.dispose(); obj.userData.edgeRef.material.dispose(); }
         }
     });
-    selectableObjects = carriedAgents.slice();   // agents survive the rebuild
-    physicsMeshes = [];
+    selectableObjects = carriedKeep.slice();   // agents + generated geometry survive the rebuild
+    physicsMeshes = physicsMeshes.filter(m => m && m.userData && m.userData._ritualWorld);
 
     state.forEach(data => {
       try {
@@ -12213,6 +12269,10 @@ Design for: "${String(text||'').slice(0,140)}".`;
             requestAnimationFrame(step);
         }
         window.__wgLastWorld = { ok:true, cert:res.cert, code:res.code };
+        // SHARED WORLD: broadcast the generation code to the room so every peer
+        // regenerates this exact world. Guarded so a world we RECEIVED (rebuilt via
+        // applyRemoteWorld -> applyForgeWorld) is not echoed back.
+        try { if (typeof window.__broadcastWorldCode === 'function') window.__broadcastWorldCode(res.code, res.cert && res.cert.hash); } catch(_){}
         return res;
     }
     function applyForgeWorld(reply){
