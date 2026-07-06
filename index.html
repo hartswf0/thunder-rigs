@@ -8796,7 +8796,22 @@ function saveLoadout(spec) {
     const s = normalizeSpec(spec);
     if (spec && Array.isArray(spec.rp)) s.rp = spec.rp;   // keep freeform parts (normalizeSpec drops them)
     if (spec && typeof spec.vcode === 'string') s.vcode = spec.vcode;   // keep code-gen vehicle
-    localStorage.setItem(LOADOUT_KEY, JSON.stringify(rigTransmitSpec(s)));
+    const payload = JSON.stringify(rigTransmitSpec(s));
+    // Persistence is best-effort and must NEVER throw up through applyLoadout/build.
+    // A QuotaExceededError here (localStorage full) previously aborted a rig build
+    // mid-way. The store is almost always full of a stale arena HANDOFF blob — a
+    // regenerable launch payload — so evict it and retry once; the loadout is tiny
+    // and matters more. If it still won't fit, keep the in-memory loadout and move on.
+    try {
+        localStorage.setItem(LOADOUT_KEY, payload);
+    } catch (e) {
+        try {
+            localStorage.removeItem('hello-world.game-handoff.v1');
+            localStorage.setItem(LOADOUT_KEY, payload);
+        } catch (e2) {
+            console.warn('[loadout] not persisted (storage full):', (e2 && e2.message) || e2);
+        }
+    }
     return s;
 }
 // myLoadout is the single source of truth for the local rig. localColor kept as an alias
