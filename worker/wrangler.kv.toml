@@ -1,0 +1,16 @@
+name = "thunder-rigs-relay"
+main = "src/index.js"
+compatibility_date = "2024-09-01"
+
+# ---------------------------------------------------------------------------
+# REFERENCE ONLY — Workers KV relay. NOT the default; do NOT use for live play.
+# KV list() is eventually consistent (~30s+ propagation), so peers take ~30s to
+# see each other — unusable for real-time presence. Kept only as a zero-infra
+# reference for low-frequency, non-realtime use. The DEFAULT (wrangler.toml) is
+# the SQLite Durable Object worker, which is also free and strongly consistent.
+# If you really want it:  npx wrangler deploy --config wrangler.kv.toml
+#   (ROOMKV namespace id below was created with `wrangler kv namespace create`.)
+# ---------------------------------------------------------------------------
+[[kv_namespaces]]
+binding = "ROOMKV"
+id = "fba83df57d2140c2a3c7a8549c330075"

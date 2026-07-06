@@ -1,16 +1,20 @@
+# Durable Objects relay — strongly consistent, instant presence, smooth 100ms.
+# This is the DEPLOYED default: it uses SQLite-backed Durable Objects, which run
+# on the Cloudflare Workers FREE plan (100k requests/day). The free KV worker
+# (see wrangler.kv.toml) is NOT usable for live presence — KV list() propagation
+# lags 30s+, so peers take ~30s to see each other. This DO worker fixes that at $0.
+#   cd worker && npm install && npx wrangler deploy
+# For sustained public traffic beyond 100k req/day, enable the Workers Paid plan
+# ($5/mo, 10M req/mo) — same code, no change needed.
 name = "thunder-rigs-relay"
-main = "src/index.js"
+main = "src/index.do.js"
 compatibility_date = "2024-09-01"
 
-# ---------------------------------------------------------------------------
-# FREE-TIER relay (Workers KV). This is the default — $0/month.
-# One-time setup:
-#   cd worker
-#   npm install
-#   npx wrangler kv namespace create ROOMKV   # copy the id it prints
-#   # paste that id below, replacing PLACEHOLDER_*, then:
-#   npx wrangler deploy
-# ---------------------------------------------------------------------------
-[[kv_namespaces]]
-binding = "ROOMKV"
-id = "PLACEHOLDER_RUN_kv_namespace_create"
+[[durable_objects.bindings]]
+name = "ROOMS"
+class_name = "ThunderRoom"
+
+[[migrations]]
+tag = "v1"
+# new_sqlite_classes => free-tier SQLite-backed DO (vs new_classes = paid-only).
+new_sqlite_classes = ["ThunderRoom"]

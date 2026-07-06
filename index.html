@@ -8,7 +8,7 @@
 <meta name="theme-color" content="#000000">
 <meta name="thunder-worker-url" content="https://thunder-rigs-relay.hartswf0.workers.dev">
 <meta name="thunder-ai-url" content="">
-<!-- Multiplayer relay tier. Set content="free" when pointing thunder-worker-url at the KV (free) worker so the client throttles car sends to fit the free write budget. Leave as "paid" (or omit) for the Durable Object worker. -->
+<!-- Relay tier: controls how often YOUR car position broadcasts (presence/roster is always instant, polled every 150ms). "free" = ~1.2s broadcasts, safe for the free Durable Object plan (100k req/day). "paid" = ~100ms smooth movement — use only with a Workers Paid plan, or a couple players will exhaust the free daily cap in ~1hr. -->
 <meta name="thunder-tier" content="free">
 <meta name="thunder-public-url" content="">
 <title>THUNDER RIGS | HELLO WORLD 005</title>
