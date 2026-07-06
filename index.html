@@ -7078,6 +7078,34 @@ function pushWorldToNewPeers() {
     if (!w || !w.ok || !w.code) return;
     roomSend({ type: 'world', code: w.code, hash: (w.cert && w.cert.hash) || '', t: Date.now() });
 }
+// ── SHARED FORTS — accumulate; each fort synced by its generation code ───────
+// Forts (field/draft builder) pile up: many coexist in one shared arena. Each
+// travels as {id, code, anchor}; peers regenerate it via window.__applyForgeFort.
+// New forts ADD, never replace; dedup by id so re-sends (late join) are cheap.
+let applyingRemoteFort = false;
+const knownForts = {};   // id -> {code, anchor} — mirror registry for late-join re-push
+function broadcastFort(id, code, anchor) {
+    if (!currentRoom || !currentPeerId || applyingRemoteFort) return;
+    if (!id || !code || typeof code !== 'string') return;
+    knownForts[id] = { code, anchor: anchor || { x:0, z:0 } };
+    roomSend({ type: 'fort', id, code, anchor: anchor || { x:0, z:0 }, t: Date.now() });
+    NETLOG('fort', 'broadcast ' + id + ' (' + code.length + ' chars)');
+}
+window.__broadcastFort = broadcastFort;
+function applyRemoteFort(msg) {
+    const id = msg && msg.id, code = msg && msg.code, anchor = (msg && msg.anchor) || { x:0, z:0 };
+    if (!id || !code || typeof window.__applyForgeFort !== 'function') return;
+    if (knownForts[id]) return;   // already built this fort — accumulate, no duplicate
+    knownForts[id] = { code, anchor };
+    applyingRemoteFort = true;
+    try { const r = window.__applyForgeFort(code, anchor, id); if (r && r.ok) notify('ROOM FORT ADDED'); else console.warn('applyRemoteFort forge failed', r && r.err); }
+    catch (e) { console.warn('applyRemoteFort', e); }
+    finally { applyingRemoteFort = false; }
+}
+function pushFortsToNewPeers() {
+    if (currentRole !== 'host' || !currentRoom || !currentPeerId) return;
+    Object.keys(knownForts).forEach(id => { const f = knownForts[id]; if (f && f.code) roomSend({ type: 'fort', id, code: f.code, anchor: f.anchor, t: Date.now() }); });
+}
 function setRoomStatus(text, color = '#aaa') {
     const el = document.getElementById('mp-status');
     if (el) { el.textContent = text; el.style.color = color; }
@@ -7177,7 +7205,7 @@ function pollRoom() {
                 const prev = window.__prevPeerIds || new Set();
                 let fresh = false; nowIds.forEach(id => { if (id !== currentPeerId && !prev.has(id)) fresh = true; });
                 window.__prevPeerIds = nowIds;
-                if (fresh && typeof pushWorldToNewPeers === 'function') pushWorldToNewPeers();
+                if (fresh) { if (typeof pushWorldToNewPeers === 'function') pushWorldToNewPeers(); if (typeof pushFortsToNewPeers === 'function') pushFortsToNewPeers(); }
             } catch(_){}
             const selfPeer = (data.peers || []).find(p => p.id === currentPeerId);
             if (selfPeer?.role && selfPeer.role !== currentRole) { currentRole = selfPeer.role; renderBotList(true); }
@@ -7220,6 +7248,7 @@ function handleRoomMessage(entry) {
     }
     if (msg.type === 'snapshot') return fetchRoomSnapshot(msg.version);
     if (msg.type === 'world') return applyRemoteWorld(msg);   // shared world, regenerated from its code
+    if (msg.type === 'fort') return applyRemoteFort(msg);     // shared fort (accumulates), regenerated from its code
     if (msg.type === 'edit') return applyArenaOps(entry.from, msg);
     if (msg.type === 'arena-req') { if (currentRole === 'host' && entry.from !== currentPeerId) sendArenaFull(); return; }
     if (msg.type === 'arena') return handleArenaPart(entry.from, msg);
@@ -12428,19 +12457,25 @@ Now output ONLY the function for: "${String(text||'a bold monument').slice(0,200
         wg.root.traverse(o => { if (o.isMesh){ o.userData.__mat = o.material; o.material = holo; } });
         scene.add(wg.root);
         wg.root.updateMatrixWorld(true);
-        window.__wgDraft = { wg, cert: res.cert };
+        window.__wgDraft = { wg, cert: res.cert, code: res.code };   // keep code so commit can share the fort
         const t = document.getElementById('prop-title'); if (t) t.textContent = 'WG BLUEPRINT \u00b7 ' + res.cert.solids + ' SOLIDS';
         const ui = document.getElementById('proposal-ui'); if (ui) ui.classList.remove('gone');
     }
     function commitWGDraft(){
         const d = window.__wgDraft; if (!d) return false;
         const wg = d.wg;
+        const fortId = 'f' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
         wg.root.traverse(o => { if (o.isMesh && o.userData.__mat){ o.material = o.userData.__mat; delete o.userData.__mat; } });
         const anchor = { x: wg.root.position.x, z: wg.root.position.z };
         const tops = wg.root.children.slice();
         tops.forEach(c => { try { scene.attach(c); } catch(_){} });
-        wg.pending.forEach(s => { s.mesh.userData.dims = s.dims; s.mesh.userData._ritualWorld = true; s.mesh.userData.type = 'wg-draft'; physicsMeshes.push(s.mesh); if (typeof selectableObjects!=='undefined') selectableObjects.push(s.mesh); });
+        wg.pending.forEach(s => { s.mesh.userData.dims = s.dims; s.mesh.userData._ritualWorld = true; s.mesh.userData.type = 'wg-draft'; s.mesh.userData.__fortId = fortId; physicsMeshes.push(s.mesh); if (typeof selectableObjects!=='undefined') selectableObjects.push(s.mesh); });
         try { if(window.__tagGeneratedGroup) window.__tagGeneratedGroup(wg.pending.map(s=>s.mesh), window.__lastDraftPrompt, 'field'); } catch(_){}
+        // SHARED FORT: broadcast this fort's generation code + anchor so every peer
+        // regenerates it. Forts ACCUMULATE (each keyed by fortId) — nothing is
+        // replaced. A fort we RECEIVED is built via applyForgeFort (below), which
+        // never calls commitWGDraft, so this only fires for locally-built forts.
+        try { if (d.code && typeof window.__broadcastFort === 'function') window.__broadcastFort(fortId, d.code, anchor); } catch(_){}
         const tick = wg.root.userData && wg.root.userData.tick;
         if (tick){
             window.__draftTicks = window.__draftTicks || [];
@@ -12464,6 +12499,39 @@ Now output ONLY the function for: "${String(text||'a bold monument').slice(0,200
         try { if (typeof notify==='function') notify('BLUEPRINT COMMITTED'); } catch(_){}
         return true;
     }
+    // Peer-side fort rebuild: compile a shared fort's code and commit it SOLID at
+    // its anchor — no hologram/preview UI and NO re-broadcast. Mirrors the
+    // solidify path of commitWGDraft. Forts accumulate; this never clears others.
+    function applyForgeFort(code, anchor, fortId){
+        const res = draftCompile(code);
+        if (!res || !res.ok) return res || { ok:false };
+        const wg = res.wg;
+        const a = anchor || { x:0, z:0 };
+        wg.root.position.set(a.x || 0, 0, a.z || 0);
+        wg.root.updateMatrixWorld(true);
+        const tops = wg.root.children.slice();
+        tops.forEach(c => { try { scene.attach(c); } catch(_){} });
+        wg.pending.forEach(s => { s.mesh.userData.dims = s.dims; s.mesh.userData._ritualWorld = true; s.mesh.userData.type = 'wg-draft'; s.mesh.userData.__fortId = fortId; physicsMeshes.push(s.mesh); if (typeof selectableObjects!=='undefined') selectableObjects.push(s.mesh); });
+        try { if(window.__tagGeneratedGroup) window.__tagGeneratedGroup(wg.pending.map(s=>s.mesh), 'shared fort', 'field'); } catch(_){}
+        const tick = wg.root.userData && wg.root.userData.tick;
+        if (tick){
+            window.__draftTicks = window.__draftTicks || [];
+            window.__draftTicks.push(tick);
+            if (!window.__draftTickLoop){
+                window.__draftTickLoop = true;
+                const step = (now)=>{ const L = window.__draftTicks || [];
+                    if (!L.length){ window.__draftTickLoop = false; return; }
+                    for (let i=0;i<L.length;i++){ try { L[i](now*0.001); } catch(_){ L.splice(i,1); i--; } }
+                    requestAnimationFrame(step); };
+                requestAnimationFrame(step);
+            }
+        }
+        try { riseWorld(tops, a); } catch(_){}
+        try { scene.remove(wg.root); } catch(_){}
+        try { if (typeof updateSceneGraph==='function') updateSceneGraph(); } catch(_){}
+        return res;
+    }
+    window.__applyForgeFort = applyForgeFort;
     function discardWGDraft(){
         const d = window.__wgDraft; if (!d) return false;
         try { scene.remove(d.wg.root); d.wg.reset(); } catch(_){}
