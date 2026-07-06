@@ -1,0 +1,16 @@
+name = "thunder-rigs-relay"
+main = "src/index.js"
+compatibility_date = "2024-09-01"
+
+# ---------------------------------------------------------------------------
+# FREE-TIER relay (Workers KV). This is the default — $0/month.
+# One-time setup:
+#   cd worker
+#   npm install
+#   npx wrangler kv namespace create ROOMKV   # copy the id it prints
+#   # paste that id below, replacing PLACEHOLDER_*, then:
+#   npx wrangler deploy
+# ---------------------------------------------------------------------------
+[[kv_namespaces]]
+binding = "ROOMKV"
+id = "PLACEHOLDER_RUN_kv_namespace_create"
