@@ -20,6 +20,11 @@ The whole thing is two static pieces:
 The relay only *forwards* messages between players in the same room code; the game
 runs entirely in each browser. That is why a static host is enough.
 
+> **How the AI actually builds things** — rigs, worlds and forts are LLM-written
+> JavaScript run in a safe, deterministic harness (the FORGE), and that same code
+> is what syncs over multiplayer. See **[ENGINEERING.md](ENGINEERING.md)** for the
+> harness / context / prompt engineering write-up.
+
 ## Two things to deploy
 
 ### 1. The relay → Cloudflare Workers (free)
