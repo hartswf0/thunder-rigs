@@ -7049,24 +7049,34 @@ function roomSend(msg) {
 // (window.__applyForgeWorld). Latest generation wins.
 let applyingRemoteWorld = false;   // guard: never rebroadcast a world we just received
 let lastWorldHash = '';            // dedup: skip a world we already built
+// DIAGNOSTIC: visible on-screen + console trace of the shared-build pipeline, so a
+// two-window test shows exactly where it breaks (build v20-sync). Toggle off later.
+function __syncLog(text, color) {
+    try { console.log('%c[SYNC] ' + text, 'color:' + (color || '#19e6c8') + ';font-weight:bold'); } catch(_){}
+    try { if (typeof notify === 'function') notify(text); } catch(_){}
+}
+window.__SYNC_TRACE = true;
 function broadcastWorldCode(code, hash) {
-    if (!currentRoom || !currentPeerId || applyingRemoteWorld) return;
-    if (!code || typeof code !== 'string') return;
+    if (!currentRoom || !currentPeerId) { if (window.__SYNC_TRACE) __syncLog('WORLD not shared — not in a room', '#ff4444'); return; }
+    if (applyingRemoteWorld) return;   // echo guard (silent)
+    if (!code || typeof code !== 'string') { if (window.__SYNC_TRACE) __syncLog('WORLD not shared — no code on commit', '#ff4444'); return; }
     if (hash) lastWorldHash = hash;
     roomSend({ type: 'world', code, hash: hash || '', t: Date.now() });
-    NETLOG('world', 'broadcast ' + code.length + ' chars');
+    if (window.__SYNC_TRACE) __syncLog('⇄ WORLD SENT → ' + currentRoom + ' (' + code.length + 'c)', '#19e6c8');
 }
 window.__broadcastWorldCode = broadcastWorldCode;
 function applyRemoteWorld(msg) {
     const code = msg && msg.code, hash = (msg && msg.hash) || '';
-    if (!code || typeof code !== 'string' || typeof window.__applyForgeWorld !== 'function') return;
-    if (hash && hash === lastWorldHash) return;   // already built this exact world
+    if (!code || typeof code !== 'string') return;
+    if (typeof window.__applyForgeWorld !== 'function') { __syncLog('WORLD recv but forge hook missing', '#ff4444'); return; }
+    if (hash && hash === lastWorldHash) return;   // already built this exact world (silent)
+    if (window.__SYNC_TRACE) __syncLog('◆ WORLD FROM PEER (' + code.length + 'c) — building…', '#ffd23f');
     applyingRemoteWorld = true;
     try {
         const r = window.__applyForgeWorld(code);
-        if (r && r.ok) { lastWorldHash = hash || (r.cert && r.cert.hash) || lastWorldHash; notify('ROOM WORLD SYNCED'); }
-        else { console.warn('applyRemoteWorld: forge failed', r && r.err); }
-    } catch (e) { console.warn('applyRemoteWorld', e); }
+        if (r && r.ok) { lastWorldHash = hash || (r.cert && r.cert.hash) || lastWorldHash; __syncLog('✓ WORLD BUILT (' + (r.cert && r.cert.meshes) + ' meshes)', '#00ff88'); }
+        else { __syncLog('✗ WORLD FAILED: ' + (r && r.err || '?'), '#ff4444'); }
+    } catch (e) { __syncLog('✗ WORLD THREW: ' + (e && e.message), '#ff4444'); }
     finally { applyingRemoteWorld = false; }
 }
 // Late join: when a new peer appears, the host re-sends the current world so the
@@ -7077,6 +7087,7 @@ function pushWorldToNewPeers() {
     const w = window.__wgLastWorld;
     if (!w || !w.ok || !w.code) return;
     roomSend({ type: 'world', code: w.code, hash: (w.cert && w.cert.hash) || '', t: Date.now() });
+    if (window.__SYNC_TRACE) __syncLog('↻ world re-sent to new peer', '#888');
 }
 // ── SHARED FORTS — accumulate; each fort synced by its generation code ───────
 // Forts (field/draft builder) pile up: many coexist in one shared arena. Each
@@ -7085,21 +7096,24 @@ function pushWorldToNewPeers() {
 let applyingRemoteFort = false;
 const knownForts = {};   // id -> {code, anchor} — mirror registry for late-join re-push
 function broadcastFort(id, code, anchor) {
-    if (!currentRoom || !currentPeerId || applyingRemoteFort) return;
-    if (!id || !code || typeof code !== 'string') return;
+    if (!currentRoom || !currentPeerId) { if (window.__SYNC_TRACE) __syncLog('FORT not shared — not in a room', '#ff4444'); return; }
+    if (applyingRemoteFort) return;   // echo guard (silent)
+    if (!id || !code || typeof code !== 'string') { if (window.__SYNC_TRACE) __syncLog('FORT not shared — no code on commit', '#ff4444'); return; }
     knownForts[id] = { code, anchor: anchor || { x:0, z:0 } };
     roomSend({ type: 'fort', id, code, anchor: anchor || { x:0, z:0 }, t: Date.now() });
-    NETLOG('fort', 'broadcast ' + id + ' (' + code.length + ' chars)');
+    if (window.__SYNC_TRACE) __syncLog('⇄ FORT SENT → ' + currentRoom + ' (' + code.length + 'c)', '#19e6c8');
 }
 window.__broadcastFort = broadcastFort;
 function applyRemoteFort(msg) {
     const id = msg && msg.id, code = msg && msg.code, anchor = (msg && msg.anchor) || { x:0, z:0 };
-    if (!id || !code || typeof window.__applyForgeFort !== 'function') return;
-    if (knownForts[id]) return;   // already built this fort — accumulate, no duplicate
+    if (!id || !code) return;
+    if (typeof window.__applyForgeFort !== 'function') { __syncLog('FORT recv but forge hook missing', '#ff4444'); return; }
+    if (knownForts[id]) return;   // already built this fort — accumulate, no duplicate (silent)
+    if (window.__SYNC_TRACE) __syncLog('◆ FORT FROM PEER (' + code.length + 'c) — building…', '#ffd23f');
     knownForts[id] = { code, anchor };
     applyingRemoteFort = true;
-    try { const r = window.__applyForgeFort(code, anchor, id); if (r && r.ok) notify('ROOM FORT ADDED'); else console.warn('applyRemoteFort forge failed', r && r.err); }
-    catch (e) { console.warn('applyRemoteFort', e); }
+    try { const r = window.__applyForgeFort(code, anchor, id); if (r && r.ok) __syncLog('✓ FORT BUILT (' + (r.cert && r.cert.meshes) + ' meshes)', '#00ff88'); else __syncLog('✗ FORT FAILED: ' + (r && r.err || '?'), '#ff4444'); }
+    catch (e) { __syncLog('✗ FORT THREW: ' + (e && e.message), '#ff4444'); }
     finally { applyingRemoteFort = false; }
 }
 function pushFortsToNewPeers() {
