@@ -1325,7 +1325,8 @@ body.watcher-role #crosshair{display:none!important}
             </svg>
         </button>
         <button id="btn-line-stow" class="std-icon" type="button" aria-label="stow the line" title="stow — one tap brings it back">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 10l6 5 6-5" fill="none" stroke="currentColor" stroke-width="2.2"/></svg>
+            <svg class="stow-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 10l6 5 6-5" fill="none" stroke="currentColor" stroke-width="2.2"/></svg>
+            <svg class="stow-bolt" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 2v11h3v9l7-12h-4l4-8z"/></svg>
         </button>
     </div>
     <button class="std-meta" id="ai-line-status" type="button" aria-label="open AI settings"><span class="st-dot"></span><span id="ai-line-status-text">AI OFF · no model · tap to configure</span></button>
@@ -7752,10 +7753,19 @@ const SFX = {
         const lch = loopBuf.getChannelData(0); for (let i = 0; i < lch.length; i++) lch[i] = Math.random() * 2 - 1;
         this.roadSrc = this.ctx.createBufferSource(); this.roadSrc.buffer = loopBuf; this.roadSrc.loop = true;
         this.roadSrc.connect(roadFilter); this.roadSrc.start();
+        // BUILD/LOADING drone — dual osc through a lowpass whose cutoff PULSES
+        // while generating, so loading reads as active work, not a flat hum.
+        this.buildGain = this.ctx.createGain(); this.buildGain.gain.value = 0.0001;
+        this.buildGain.connect(this.master);
+        this.buildFilter = this.ctx.createBiquadFilter();
+        this.buildFilter.type = 'lowpass'; this.buildFilter.frequency.value = 600; this.buildFilter.Q.value = 8;
+        this.buildFilter.connect(this.buildGain);
         this.buildOsc = this.ctx.createOscillator();
-        this.buildGain = this.ctx.createGain();
-        this.buildOsc.type = 'triangle'; this.buildOsc.frequency.value = 105; this.buildGain.gain.value = 0.0001;
-        this.buildOsc.connect(this.buildGain).connect(this.master); this.buildOsc.start();
+        this.buildOsc.type = 'triangle'; this.buildOsc.frequency.value = 105;
+        this.buildOsc.connect(this.buildFilter); this.buildOsc.start();
+        this.buildOsc2 = this.ctx.createOscillator();
+        this.buildOsc2.type = 'sawtooth'; this.buildOsc2.frequency.value = 157; this.buildOsc2.detune.value = 6;
+        this.buildOsc2.connect(this.buildFilter); this.buildOsc2.start();
     },
     tone(freq = 300, duration = 0.05, volume = 0.025, type = 'sine', slide = 1) {
         this.init(); if (!this.ctx) return;
@@ -7803,7 +7813,15 @@ const SFX = {
             this.roadSrc.playbackRate.setTargetAtTime(0.7 + rpm * 0.9, now, 0.1);
             this.roadGain.gain.setTargetAtTime(speed > 1 ? clamp(rpm * 0.02, 0, 0.02) : 0.0001, now, 0.12);
         }
-        this.buildOsc.frequency.setTargetAtTime(building ? 105 + Math.sin(performance.now() * 0.003) * 8 : 105, now, 0.08);
+        if (building) {
+            const bt = performance.now() * 0.001;
+            const f = 100 + Math.sin(bt * 0.7) * 12;
+            this.buildOsc.frequency.setTargetAtTime(f, now, 0.1);
+            if (this.buildOsc2) this.buildOsc2.frequency.setTargetAtTime(f * 1.5, now, 0.1);
+            if (this.buildFilter) this.buildFilter.frequency.setTargetAtTime(420 + Math.abs(Math.sin(bt * 3.0)) * 1700, now, 0.04);   // rhythmic wah = "generating"
+        } else if (this.buildFilter) {
+            this.buildFilter.frequency.setTargetAtTime(600, now, 0.2);
+        }
     }
 };
 document.addEventListener('pointerdown', e => {
@@ -15233,7 +15251,12 @@ body.agent-line-open #action-zone,body.agent-line-open #drivezone,body.agent-lin
 #ai-bar.stowed .std-line{gap:0!important}
 #ai-bar.stowed .std-line input,#ai-bar.stowed .std-send,#ai-bar.stowed .std-mic,
 #ai-bar.stowed .std-context,#ai-bar.stowed .std-meta{display:none!important}
-#ai-bar.stowed #btn-line-stow svg{transform:rotate(180deg)}
+/* STOWED in-scene builder shows the LIGHTNING (brand affordance to reopen it),
+   matching the ritual's thunder reopen — the lightning "goes with" the builder. */
+#btn-line-stow .stow-bolt{display:none;fill:currentColor;stroke:none}
+#ai-bar.stowed #btn-line-stow{color:#19e6c8!important}
+#ai-bar.stowed #btn-line-stow .stow-chevron{display:none}
+#ai-bar.stowed #btn-line-stow .stow-bolt{display:block;width:20px!important;height:20px!important}
 
 /* SAY keeps its chips, but its command row is now the same object language. */
 #cmd-modal{align-items:flex-end!important;justify-content:center!important;padding:12px 9px max(12px,env(safe-area-inset-bottom))!important;background:rgba(0,5,9,.48)!important}
