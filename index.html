@@ -15341,8 +15341,8 @@ body.agent-line-open #action-zone,body.agent-line-open #drivezone,body.agent-lin
 #cmd-close{border:0!important;background:transparent!important;color:#77848f!important;padding:6px 12px!important;font:600 9px/1 Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif!important;text-transform:lowercase!important}
 
 .std-context.std-chat{color:#ffcfa2!important;background:rgba(249,115,22,.14)!important;border:1px solid rgba(249,115,22,.34)!important}
-.std-mic.listening{color:#ff2e2e!important;animation:mic-pulse 1.2s infinite alternate!important}
-@keyframes mic-pulse{0%{transform:scale(1);opacity:.8}100%{transform:scale(1.12);opacity:1}}
+.std-mic.listening,.std-icon.listening{color:#ff2e2e!important;border-radius:50%!important;animation:mic-pulse .95s infinite!important}
+@keyframes mic-pulse{0%{box-shadow:0 0 0 0 rgba(255,46,46,.55);transform:scale(1)}70%{box-shadow:0 0 0 15px rgba(255,46,46,0);transform:scale(1.12)}100%{box-shadow:0 0 0 0 rgba(255,46,46,0);transform:scale(1)}}
 
 @media (max-width:430px){
   .std-context{padding:0 6px;font-size:8px}
@@ -15520,6 +15520,7 @@ body.agent-line-open #action-zone,body.agent-line-open #drivezone,body.agent-lin
               dc.onmessage = (e) => {
                   let m; try { m = JSON.parse(e.data); } catch(_){ return; }
                   const ty = m.type || '';
+                  console.log('[realtime]', ty, m.transcript != null ? ('"' + m.transcript + '"') : (m.delta != null ? ('+' + m.delta) : ''));
                   if (ty.indexOf('input_audio_transcription.delta') >= 0 && m.delta != null) {
                       inputEl.value = (inputEl.value + m.delta).replace(/^\s+/,''); inputEl.focus();
                       try{ inputEl.selectionStart = inputEl.selectionEnd = inputEl.value.length; }catch(_){}
@@ -15535,11 +15536,14 @@ body.agent-line-open #action-zone,body.agent-line-open #drivezone,body.agent-lin
                   method:'POST', body: offer.sdp,
                   headers:{ 'Authorization':'Bearer ' + key, 'Content-Type':'application/sdp' }
               });
+              console.log('[realtime] SDP POST status', resp.status);
               if (!resp.ok) { const t = await resp.text().catch(()=> ''); throw new Error(resp.status + ' ' + t.slice(0,140)); }
               const sdp = await resp.text();
               if (done) return true;
               await pc.setRemoteDescription({ type:'answer', sdp });
+              console.log('[realtime] connected — speak now');
           } catch (err) {
+              console.error('[realtime] failed', err);
               if (typeof notify==='function') notify('REALTIME VOICE FAILED — ' + (err && err.message || err));
               cleanup();
           }
@@ -15740,12 +15744,30 @@ body.agent-line-open #action-zone,body.agent-line-open #drivezone,body.agent-lin
 
           const ritualInput = document.getElementById('ritual-input');
           const runBuild = () => { const b = document.getElementById('ritual-build'); if (b) b.click(); };
-          // REALTIME dictation when a direct OpenAI key is set (else demo-fill below).
+          // 1) REALTIME dictation when a direct OpenAI key is set.
           const cfg = (typeof getAIConfig === 'function') ? getAIConfig() : {};
           if (cfg && cfg.provider !== 'thunder' && cfg.apiKey && typeof window.__realtimeVoice === 'function') {
               window.__realtimeVoice(ritualMic, ritualInput, runBuild); return;
           }
-
+          // 2) REAL Web Speech dictation — live transcript, builds on finish.
+          const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+          if (SR) {
+              let rec; try { rec = new SR(); } catch(_) { rec = null; }
+              if (rec) {
+                  rec.lang = 'en-US'; rec.interimResults = true; rec.continuous = false; rec.maxAlternatives = 1;
+                  ritualMic.classList.add('listening'); if (ritualInput) ritualInput.value = '';
+                  const what = document.getElementById('r-tab-hello').classList.contains('active') ? 'RIG' : 'WORLD';
+                  if (typeof notify === 'function') notify('LISTENING… SPEAK YOUR ' + what);
+                  let finalText = '';
+                  ritualMic.__srStop = () => { try { rec.stop(); } catch(_){} };
+                  rec.onresult = (ev) => { let interim = ''; for (let i = ev.resultIndex; i < ev.results.length; i++){ const t = ev.results[i][0].transcript; if (ev.results[i].isFinal) finalText += t; else interim += t; } if (ritualInput){ ritualInput.value = (finalText + interim).trim(); ritualInput.focus(); ritualInput.selectionStart = ritualInput.selectionEnd = ritualInput.value.length; } };
+                  rec.onerror = (ev) => { ritualMic.classList.remove('listening'); ritualMic.__srStop = null; if (typeof notify === 'function') notify(ev.error === 'not-allowed' ? 'MIC BLOCKED — ALLOW MIC ACCESS IN YOUR BROWSER' : ev.error === 'no-speech' ? 'NO SPEECH HEARD — TAP THE MIC AND TRY AGAIN' : 'VOICE ERROR: ' + ev.error); };
+                  rec.onend = () => { ritualMic.classList.remove('listening'); ritualMic.__srStop = null; const said = (finalText || (ritualInput && ritualInput.value) || '').trim(); if (said) runBuild(); };
+                  try { rec.start(); } catch(_) { ritualMic.classList.remove('listening'); }
+                  return;
+              }
+          }
+          // 3) last resort (browser without speech, e.g. some iOS): demo-fill.
           ritualMic.classList.add('listening');
           if (ritualInput) ritualInput.value = '';
 
