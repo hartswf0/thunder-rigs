@@ -15488,6 +15488,65 @@ body.agent-line-open #action-zone,body.agent-line-open #drivezone,body.agent-lin
           "clear targets"
       ];
       
+      // ── REALTIME VOICE — OpenAI gpt-realtime-2.1-mini ───────────────────────
+      // When a direct OpenAI key is set, dictation streams over WebRTC to the
+      // Realtime API and transcribes straight into the target input. Second tap
+      // (or a natural pause) sends. Falls back to Web Speech when no key is set.
+      // Audio is billed on the user's own key; the key runs in the browser.
+      async function realtimeVoice(btn, inputEl, onExecute) {
+          if (btn.__rtStop) { btn.__rtStop(); return true; }        // second tap = stop + send
+          const cfg = (typeof getAIConfig === 'function') ? getAIConfig() : {};
+          const key = cfg && cfg.apiKey;
+          if (!key || cfg.provider === 'thunder') return false;     // no direct key -> caller falls back
+          const MODEL = 'gpt-realtime-2.1-mini';
+          let pc, dc, ms, finalText = '', done = false;
+          const cleanup = () => { done = true; btn.classList.remove('listening'); btn.__rtStop = null;
+              try{ dc && dc.close(); }catch(_){} try{ pc && pc.close(); }catch(_){}
+              try{ ms && ms.getTracks().forEach(t=>t.stop()); }catch(_){} };
+          btn.__rtStop = () => { const said=(finalText||inputEl.value||'').trim(); cleanup(); if (said && typeof onExecute==='function') onExecute(said); };
+          try {
+              btn.classList.add('listening'); inputEl.value = '';
+              if (typeof notify==='function') notify('LISTENING (REALTIME)… SPEAK, THEN PAUSE');
+              ms = await navigator.mediaDevices.getUserMedia({ audio: true });
+              if (done) return true;
+              pc = new RTCPeerConnection();
+              pc.ontrack = () => {};                                 // ignore any model audio
+              pc.addTrack(ms.getAudioTracks()[0], ms);
+              dc = pc.createDataChannel('oai-events');
+              dc.onopen = () => { try { dc.send(JSON.stringify({ type:'session.update', session:{
+                  input_audio_transcription:{ model:'gpt-4o-mini-transcribe' },
+                  turn_detection:{ type:'server_vad', silence_duration_ms:900, create_response:false }
+              }})); } catch(_){} };
+              dc.onmessage = (e) => {
+                  let m; try { m = JSON.parse(e.data); } catch(_){ return; }
+                  const ty = m.type || '';
+                  if (ty.indexOf('input_audio_transcription.delta') >= 0 && m.delta != null) {
+                      inputEl.value = (inputEl.value + m.delta).replace(/^\s+/,''); inputEl.focus();
+                      try{ inputEl.selectionStart = inputEl.selectionEnd = inputEl.value.length; }catch(_){}
+                  } else if (ty.indexOf('input_audio_transcription.completed') >= 0 && m.transcript != null) {
+                      finalText = String(m.transcript).trim(); inputEl.value = finalText;
+                      if (btn.__rtStop) btn.__rtStop();              // one utterance -> send
+                  } else if (ty === 'error') {
+                      if (typeof notify==='function') notify('VOICE: ' + ((m.error && m.error.message) || 'realtime error'));
+                  }
+              };
+              const offer = await pc.createOffer(); await pc.setLocalDescription(offer);
+              const resp = await fetch('https://api.openai.com/v1/realtime?model=' + encodeURIComponent(MODEL), {
+                  method:'POST', body: offer.sdp,
+                  headers:{ 'Authorization':'Bearer ' + key, 'Content-Type':'application/sdp' }
+              });
+              if (!resp.ok) { const t = await resp.text().catch(()=> ''); throw new Error(resp.status + ' ' + t.slice(0,140)); }
+              const sdp = await resp.text();
+              if (done) return true;
+              await pc.setRemoteDescription({ type:'answer', sdp });
+          } catch (err) {
+              if (typeof notify==='function') notify('REALTIME VOICE FAILED — ' + (err && err.message || err));
+              cleanup();
+          }
+          return true;
+      }
+      window.__realtimeVoice = realtimeVoice;   // reused by the HELLO/WORLD ritual mic
+
       function wireVoiceDictation(btnId, inputId, getPhrases, onExecute) {
           const btn = document.getElementById(btnId);
           const inputEl = document.getElementById(inputId);
@@ -15544,7 +15603,9 @@ body.agent-line-open #action-zone,body.agent-line-open #drivezone,body.agent-lin
 
           btn.addEventListener('click', (e) => {
               e.stopPropagation();
-              if (btn.classList.contains('listening')) return;
+              if (btn.classList.contains('listening')) { if (btn.__rtStop) btn.__rtStop(); return; }
+              const cfg = (typeof getAIConfig === 'function') ? getAIConfig() : {};
+              if (cfg && cfg.provider !== 'thunder' && cfg.apiKey) { realtimeVoice(btn, inputEl, onExecute); return; }
               if (SR) realListen(); else demoType();
           });
       }
@@ -15675,12 +15736,19 @@ body.agent-line-open #action-zone,body.agent-line-open #drivezone,body.agent-lin
   if (ritualMic) {
       ritualMic.addEventListener('click', (e) => {
           e.stopPropagation();
-          if (ritualMic.classList.contains('listening')) return;
-          
-          ritualMic.classList.add('listening');
+          if (ritualMic.classList.contains('listening')) { if (ritualMic.__rtStop) ritualMic.__rtStop(); return; }
+
           const ritualInput = document.getElementById('ritual-input');
+          const runBuild = () => { const b = document.getElementById('ritual-build'); if (b) b.click(); };
+          // REALTIME dictation when a direct OpenAI key is set (else demo-fill below).
+          const cfg = (typeof getAIConfig === 'function') ? getAIConfig() : {};
+          if (cfg && cfg.provider !== 'thunder' && cfg.apiKey && typeof window.__realtimeVoice === 'function') {
+              window.__realtimeVoice(ritualMic, ritualInput, runBuild); return;
+          }
+
+          ritualMic.classList.add('listening');
           if (ritualInput) ritualInput.value = '';
-          
+
           const isHello = document.getElementById('r-tab-hello').classList.contains('active');
           const list = isHello ? helloPhrases : worldPhrases;
           const phrase = list[Math.floor(Math.random() * list.length)];
