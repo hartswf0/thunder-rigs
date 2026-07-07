@@ -15551,6 +15551,53 @@ body.agent-line-open #action-zone,body.agent-line-open #drivezone,body.agent-lin
       }
       window.__realtimeVoice = realtimeVoice;   // reused by the HELLO/WORLD ritual mic
 
+      // ── PROXY VOICE — the reliable path (works on iOS, no CORS) ─────────────
+      // Record the mic, POST the audio to the worker's /transcribe (which forwards
+      // to OpenAI server-side), drop the text into the input and build. Tap once to
+      // start, again to send. Used whenever a direct OpenAI key is set.
+      async function recordTranscribe(btn, inputEl, onExecute) {
+          if (btn.__recStop) { btn.__recStop(); return true; }        // 2nd tap = send
+          const cfg = (typeof getAIConfig === 'function') ? getAIConfig() : {};
+          const key = cfg && cfg.apiKey;
+          if (!key || cfg.provider === 'thunder') return false;       // no direct key -> fall back
+          if (!window.MediaRecorder || !(navigator.mediaDevices && navigator.mediaDevices.getUserMedia)) return false;
+          let ms, rec, chunks = [], done = false;
+          const finish = () => { if (done) return; done = true; btn.classList.remove('listening'); btn.__recStop = null;
+              try{ ms && ms.getTracks().forEach(t=>t.stop()); }catch(_){} };
+          try {
+              ms = await navigator.mediaDevices.getUserMedia({ audio: true });
+              btn.classList.add('listening');
+              if (typeof notify === 'function') notify('RECORDING… TAP MIC TO SEND');
+              const mime = ['audio/webm','audio/mp4','audio/ogg'].find(m => window.MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(m)) || '';
+              rec = mime ? new MediaRecorder(ms, { mimeType: mime }) : new MediaRecorder(ms);
+              rec.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
+              rec.onstop = async () => {
+                  finish();
+                  if (!chunks.length) { if (typeof notify==='function') notify('NOTHING RECORDED — TRY AGAIN'); return; }
+                  const blob = new Blob(chunks, { type: rec.mimeType || 'audio/webm' });
+                  if (typeof notify === 'function') notify('TRANSCRIBING…');
+                  try {
+                      const r = await fetch(WORKER_URL + '/transcribe', { method:'POST',
+                          headers: { 'Content-Type': blob.type || 'audio/webm', 'x-openai-key': key }, body: blob });
+                      const data = await r.json().catch(()=>({}));
+                      if (!r.ok) throw new Error(data.error || ('transcribe ' + r.status));
+                      const text = (data.text || '').trim();
+                      if (text) { inputEl.value = text; inputEl.focus(); try{ inputEl.selectionStart = inputEl.selectionEnd = inputEl.value.length; }catch(_){}
+                          if (typeof onExecute === 'function') onExecute(text); }
+                      else if (typeof notify === 'function') notify('NOTHING HEARD — SPEAK CLEARLY, THEN TAP MIC');
+                  } catch (err) { console.error('[voice] transcribe', err); if (typeof notify==='function') notify('VOICE FAILED — ' + (err.message||err)); }
+              };
+              btn.__recStop = () => { try { rec.stop(); } catch(_){ finish(); } };
+              rec.start();
+              setTimeout(() => { if (btn.__recStop) btn.__recStop(); }, 20000);   // 20s safety cap
+          } catch (err) {
+              finish(); console.error('[voice] mic', err);
+              if (typeof notify === 'function') notify('MIC FAILED — ' + (err.message||err));
+          }
+          return true;
+      }
+      window.__recordTranscribe = recordTranscribe;
+
       function wireVoiceDictation(btnId, inputId, getPhrases, onExecute) {
           const btn = document.getElementById(btnId);
           const inputEl = document.getElementById(inputId);
@@ -15607,9 +15654,9 @@ body.agent-line-open #action-zone,body.agent-line-open #drivezone,body.agent-lin
 
           btn.addEventListener('click', (e) => {
               e.stopPropagation();
-              if (btn.classList.contains('listening')) { if (btn.__rtStop) btn.__rtStop(); return; }
+              if (btn.classList.contains('listening')) { if (btn.__recStop) btn.__recStop(); else if (btn.__rtStop) btn.__rtStop(); return; }
               const cfg = (typeof getAIConfig === 'function') ? getAIConfig() : {};
-              if (cfg && cfg.provider !== 'thunder' && cfg.apiKey) { realtimeVoice(btn, inputEl, onExecute); return; }
+              if (cfg && cfg.provider !== 'thunder' && cfg.apiKey) { recordTranscribe(btn, inputEl, onExecute); return; }
               if (SR) realListen(); else demoType();
           });
       }
@@ -15740,14 +15787,14 @@ body.agent-line-open #action-zone,body.agent-line-open #drivezone,body.agent-lin
   if (ritualMic) {
       ritualMic.addEventListener('click', (e) => {
           e.stopPropagation();
-          if (ritualMic.classList.contains('listening')) { if (ritualMic.__rtStop) ritualMic.__rtStop(); return; }
+          if (ritualMic.classList.contains('listening')) { if (ritualMic.__recStop) ritualMic.__recStop(); else if (ritualMic.__rtStop) ritualMic.__rtStop(); else if (ritualMic.__srStop) ritualMic.__srStop(); return; }
 
           const ritualInput = document.getElementById('ritual-input');
           const runBuild = () => { const b = document.getElementById('ritual-build'); if (b) b.click(); };
-          // 1) REALTIME dictation when a direct OpenAI key is set.
+          // 1) PROXY voice (record -> worker /transcribe -> OpenAI) when a key is set.
           const cfg = (typeof getAIConfig === 'function') ? getAIConfig() : {};
-          if (cfg && cfg.provider !== 'thunder' && cfg.apiKey && typeof window.__realtimeVoice === 'function') {
-              window.__realtimeVoice(ritualMic, ritualInput, runBuild); return;
+          if (cfg && cfg.provider !== 'thunder' && cfg.apiKey && typeof window.__recordTranscribe === 'function') {
+              window.__recordTranscribe(ritualMic, ritualInput, runBuild); return;
           }
           // 2) REAL Web Speech dictation — live transcript, builds on finish.
           const SR = window.SpeechRecognition || window.webkitSpeechRecognition;

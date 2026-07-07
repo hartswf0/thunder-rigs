@@ -69,6 +69,32 @@ export default {
       return json({ ok: true, service: 'thunder-relay', ts: Date.now() });
     }
 
+    // VOICE — record audio in the browser, POST it here, we forward it to OpenAI
+    // transcription server-side (no CORS, works on iOS). Key comes from the
+    // x-openai-key header (the app's configured key) or the OPENAI_KEY secret.
+    if (parts[0] === 'transcribe') {
+      if (request.method !== 'POST') return json({ error: 'POST audio to /transcribe' }, 405);
+      const key = request.headers.get('x-openai-key') || env.OPENAI_KEY;
+      if (!key) return json({ error: 'no OpenAI key — set one in the app (OpenAI direct) or an OPENAI_KEY worker secret' }, 400);
+      try {
+        const audio = await request.arrayBuffer();
+        if (!audio || audio.byteLength < 800) return json({ error: 'audio too short / empty' }, 400);
+        const ct = (request.headers.get('content-type') || 'audio/webm').split(';')[0];
+        const ext = ct.includes('mp4') ? 'mp4' : ct.includes('mpeg') ? 'mp3' : ct.includes('ogg') ? 'ogg' : ct.includes('wav') ? 'wav' : 'webm';
+        const form = new FormData();
+        form.append('file', new Blob([audio], { type: ct }), 'audio.' + ext);
+        form.append('model', request.headers.get('x-model') || 'gpt-4o-mini-transcribe');
+        const r = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+          method: 'POST', headers: { Authorization: 'Bearer ' + key }, body: form,
+        });
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok) return json({ error: (data.error && data.error.message) || ('openai ' + r.status) }, 502);
+        return json({ text: (data.text || '').trim() });
+      } catch (e) {
+        return json({ error: 'transcribe error: ' + (e && e.message || e) }, 500);
+      }
+    }
+
     if (parts[0] !== 'trig' || parts.length < 3) {
       return json({ error: 'bad path — expected /trig/{room}/{op}' }, 404);
     }
