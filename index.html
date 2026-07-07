@@ -720,8 +720,9 @@ body.in-ritual #ritual-cta .door-glyph{color:#19e6c8}
 #tutor .tutor-skip{background:none;border:none;color:#7f8b95;font:700 11px/1 inherit;letter-spacing:.1em;cursor:pointer;padding:8px 6px}
 #tutor .tutor-do{flex:1;background:#19e6c8;color:#04120f;border:none;border-radius:11px;padding:13px 16px;font:800 13px/1 Inter,-apple-system,sans-serif;letter-spacing:.05em;cursor:pointer;-webkit-tap-highlight-color:transparent}
 #tutor .tutor-do:active{transform:translateY(1px)}
-/* the STOWED field builder is a compact lightning toggle, not a wide empty pill */
-#ai-bar.std-agent-shell.stowed{width:auto!important;min-width:0!important;max-width:none!important;padding:9px 11px!important}
+/* the STOWED field builder is a compact lightning toggle, parked top-left UNDER
+   the red ritual bolt (out of the centred PLAY button's way), not a wide pill */
+#ai-bar.std-agent-shell.stowed{width:auto!important;min-width:0!important;max-width:none!important;padding:9px 11px!important;left:max(12px,env(safe-area-inset-left))!important;right:auto!important;transform:none!important;top:max(64px,calc(env(safe-area-inset-top) + 64px))!important}
 /* CLOSE/MINIMISE the main builder — touch-sized, top-right, only once onboarding
    is done (so first-timers still finish HELLO). Reveals the thunder reopen pill. */
 #ritual-min{position:fixed;top:max(12px,env(safe-area-inset-top));right:max(12px,env(safe-area-inset-right));z-index:60;display:none;align-items:center;justify-content:center;width:46px;height:46px;padding:0;border:1px solid rgba(255,255,255,.28);border-radius:12px;background:rgba(10,10,12,.62);cursor:pointer;-webkit-tap-highlight-color:transparent}
@@ -10859,8 +10860,9 @@ document.getElementById('btn-close-help').addEventListener('click', () => {
   const openField = () => { try{ const b = document.getElementById('ai-bar'); if (b){ b.classList.remove('gone'); b.classList.remove('stowed'); document.body.classList.add('agent-line-open'); setTimeout(()=>{ try{ document.getElementById('ai-prompt-input').focus({preventScroll:true}); }catch(_){} }, 80); } }catch(_){} };
   const steps = [
     { t:'You built a rig and a world. Now drive — push the stick.', b:'DRIVE ›', act(){} },
-    { t:'Hold BOOST up ramps. Tap FIRE to break things.',          b:'GOT IT ›', act(){} },
+    { t:'JUMP off ramps. Hold BOOST to climb. Tap FIRE to break things.', b:'GOT IT ›', act(){} },
     { t:'Drop a fort in the field: tap ⚡, type it, it lands in front of you.', b:'⚡ OPEN FIELD BUILDER', act(){ openField(); } },
+    { t:'Open the workbench — tap ≡ for tools, garage, cameras and settings.', b:'≡ OPEN MENU', act(){ tap('menu-fab'); } },
     { t:'Rebuild your rig or world anytime: the red ⚡, top-left.', b:'GOT IT ›', act(){} },
     { t:'Play together — host a room and hand over the link.',      b:'⧉ HOST A ROOM', act(){ tap('btn-mp-do-host'); }, last:true },
   ];
