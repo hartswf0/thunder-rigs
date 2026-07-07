@@ -705,6 +705,12 @@ body.in-ritual #proposal-ui{z-index:338}
 #ritual-reopen{position:absolute;top:max(12px,env(safe-area-inset-top));left:12px;z-index:47;display:none;align-items:center;justify-content:center;width:46px;height:46px;padding:0;border:none;border-radius:12px;background:#e0243a;color:#fff;cursor:pointer;box-shadow:0 4px 14px rgba(0,0,0,.5);-webkit-tap-highlight-color:transparent}
 #ritual-reopen svg{width:26px;height:26px;fill:#fff}
 body.ritual-done:not(.in-ritual) #ritual-reopen{display:flex}
+/* FLASH the Enter-world portal so players see the way across into the world */
+@keyframes ctaFlash{0%,100%{box-shadow:0 0 0 0 rgba(25,230,200,0);border-color:rgba(255,255,255,.14)}50%{box-shadow:0 0 26px 3px rgba(25,230,200,.5);border-color:rgba(25,230,200,.75)}}
+body.in-ritual #ritual-cta{animation:ctaFlash 1.6s ease-in-out infinite}
+body.in-ritual #ritual-cta .door-glyph{color:#19e6c8}
+/* the STOWED field builder is a compact lightning toggle, not a wide empty pill */
+#ai-bar.std-agent-shell.stowed{width:auto!important;min-width:0!important;max-width:none!important;padding:9px 11px!important}
 /* CLOSE/MINIMISE the main builder — touch-sized, top-right, only once onboarding
    is done (so first-timers still finish HELLO). Reveals the thunder reopen pill. */
 #ritual-min{position:fixed;top:max(12px,env(safe-area-inset-top));right:max(12px,env(safe-area-inset-right));z-index:60;display:none;align-items:center;justify-content:center;width:46px;height:46px;padding:0;border:1px solid rgba(255,255,255,.28);border-radius:12px;background:rgba(10,10,12,.62);cursor:pointer;-webkit-tap-highlight-color:transparent}
@@ -1360,10 +1366,19 @@ body.watcher-role #crosshair{display:none!important}
 <!-- HELP MODAL -->
 <div id="help-modal">
     <div class="help-header">
-        <span>THUNDER RIGS | DRIVABLE FORTS MANUAL</span>
+        <span>THUNDER RIGS | TUTORIAL &amp; MANUAL</span>
         <button id="btn-close-help" class="mini-btn" style="border-color:#ff2e2e; color:#ff2e2e; width: 24px;">X</button>
     </div>
     <div class="help-content">
+        <h3>★ QUICK START — HOW TO PLAY</h3>
+        <ul>
+            <li><span class="key">1 · HELLO</span> — say what your <b>rig</b> is (e.g. &ldquo;a titanium speeder with a wing&rdquo;). The AI builds the vehicle from your words.</li>
+            <li><span class="key">2 · WORLD</span> — switch to the <b>WORLD</b> tab and describe a place (&ldquo;a bone-desert temple&rdquo;). It generates a real, drivable world.</li>
+            <li><span class="key">3 · ENTER</span> — tap the flashing <span class="key">Enter world&nbsp;↗</span> portal to drop into it.</li>
+            <li><span class="key">4 · DRIVE</span> — joystick / WASD to move; JUMP, BOOST and FIRE (details below).</li>
+            <li><span class="key">5 · FIELD BUILDER&nbsp;⚡</span> — tap the <b>lightning</b> tab to summon structures &amp; drivable forts into the scene (&ldquo;a dragon gate&rdquo;); tap it again to close. Reopen HELLO/WORLD anytime with the red&nbsp;⚡ (top-left).</li>
+            <li><span class="key">6 · MULTIPLAYER</span> — open the menu (≡) → <b>host a room</b> and share the link or QR. Friends who join see your rig, your world, and every fort you build — <span class="key">build together in real time</span>.</li>
+        </ul>
         <h3>1. DRIVING & COMBAT</h3>
         <ul>
             <li><span class="key">Left Joystick (Mobile) / WASD (PC):</span> Steer and accelerate. Note: Steering is Camera-Relative! Up is always away from the camera.</li>
@@ -10260,7 +10275,7 @@ document.getElementById('btn-open-ai-txt').addEventListener('click', () => {
     if (opening) setTimeout(() => document.getElementById('ai-prompt-input').focus(), 40);
 });
 const btnCloseAi = document.getElementById('btn-close-ai');
-if (btnCloseAi) btnCloseAi.addEventListener('click', () => { document.getElementById('ai-bar').classList.add('gone'); document.body.classList.remove('agent-line-open'); });
+if (btnCloseAi) btnCloseAi.addEventListener('click', () => { const b=document.getElementById('ai-bar'); b.classList.remove('gone'); b.classList.add('stowed'); document.body.classList.remove('agent-line-open'); });   // close -> stow to the lightning tab (never fully hidden), so it's one tap to reopen
 document.getElementById('btn-submit-ai').addEventListener('click', runAIAgent);
 document.getElementById('ai-prompt-input').addEventListener('keydown', e => { if(e.key === 'Enter') runAIAgent(); });
 window.runAIAgent = runAIAgent;   // expose so the unified command bar (different scope) can reach it
@@ -13492,6 +13507,11 @@ Reply with ONLY a JSON array of 2–8 NEW parts, each: {"kind":"one of: ${KINDS}
         document.body.classList.add('sneak-mode');
         document.body.classList.add('ritual-done');           // reveal the reopen button
         if (typeof notify === 'function') notify('WELCOME IN');
+        // FIELD BUILDER stays reachable: park it as the compact lightning tab, so
+        // one tap on the bolt always opens/closes it in play.
+        try{ const _fb=document.getElementById('ai-bar'); if(_fb){ _fb.classList.remove('gone'); _fb.classList.add('stowed'); document.body.classList.remove('agent-line-open'); } }catch(_){}
+        // FIRST RUN: pop the quick tutorial once.
+        try{ if(!localStorage.getItem('trig.tutseen')){ localStorage.setItem('trig.tutseen','1'); setTimeout(()=>{ const h=document.getElementById('help-modal'); if(h){ h.classList.add('show'); const c=h.querySelector('.help-content'); if(c) c.scrollTop=0; } }, 650); } }catch(_){}
         if (pendingRitualAutoJoin){ pendingRitualAutoJoin = false; setTimeout(()=>joinRoomUIHandler(false), 200); }
     }
     window.releaseToSneak = releaseToSneak;
