@@ -10,7 +10,7 @@
 <meta name="thunder-ai-url" content="">
 <!-- Relay tier: controls how often YOUR car position broadcasts (presence/roster is always instant, polled every 150ms). "free" = ~1.2s broadcasts, safe for the free Durable Object plan (100k req/day). "paid" = ~100ms smooth movement — use only with a Workers Paid plan, or a couple players will exhaust the free daily cap in ~1hr. -->
 <meta name="thunder-tier" content="free">
-<meta name="thunder-public-url" content="">
+<meta name="thunder-public-url" content="https://hartswf0.github.io/thunder-rigs/">
 <title>THUNDER RIGS | HELLO WORLD 005</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%20100%20100'%3E%3Ctext%20y='.9em'%20font-size='88'%3E%E2%9A%A1%3C/text%3E%3C/svg%3E">
 <style>
@@ -702,8 +702,14 @@ body.in-ritual #proposal-ui{z-index:338}
 #ritual .r-cta{margin-top:12px;width:min(560px,94vw);border:1px solid rgba(255,255,255,.14);background:rgba(20,22,27,.82);backdrop-filter:blur(12px);color:#fff;font:inherit;font-weight:700;letter-spacing:.12em;padding:15px;font-size:14px;border-radius:12px;cursor:pointer}
 #ritual .r-cta:active{background:#000}
 /* small persistent button to reopen the HELLO/WORLD editor anytime in play */
-#ritual-reopen{position:absolute;top:max(12px,env(safe-area-inset-top));left:12px;z-index:47;display:none;border:none;border-radius:8px;background:#e0243a;color:#fff;font:inherit;font-weight:800;font-size:11px;letter-spacing:.12em;padding:9px 13px;cursor:pointer;box-shadow:0 4px 14px rgba(0,0,0,.5)}
-body.ritual-done:not(.in-ritual) #ritual-reopen{display:block}
+#ritual-reopen{position:absolute;top:max(12px,env(safe-area-inset-top));left:12px;z-index:47;display:none;align-items:center;justify-content:center;width:46px;height:46px;padding:0;border:none;border-radius:12px;background:#e0243a;color:#fff;cursor:pointer;box-shadow:0 4px 14px rgba(0,0,0,.5);-webkit-tap-highlight-color:transparent}
+#ritual-reopen svg{width:26px;height:26px;fill:#fff}
+body.ritual-done:not(.in-ritual) #ritual-reopen{display:flex}
+/* CLOSE/MINIMISE the main builder — touch-sized, top-right, only once onboarding
+   is done (so first-timers still finish HELLO). Reveals the thunder reopen pill. */
+#ritual-min{position:fixed;top:max(12px,env(safe-area-inset-top));right:max(12px,env(safe-area-inset-right));z-index:60;display:none;align-items:center;justify-content:center;width:46px;height:46px;padding:0;border:1px solid rgba(255,255,255,.28);border-radius:12px;background:rgba(10,10,12,.62);cursor:pointer;-webkit-tap-highlight-color:transparent}
+#ritual-min svg{width:26px;height:26px;fill:none;stroke:#fff;stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round}
+body.ritual-done.in-ritual #ritual-min{display:flex}
 /* HELLO = the garage: dark backdrop hides the play HUD; mini badge header + claim */
 /* during the whole ritual, hide the live-play HUD until SNEAK releases */
 body.in-ritual #play-fab,body.in-ritual #menu-fab,body.in-ritual #action-zone,body.in-ritual #drivezone,body.in-ritual #driveBase,body.in-ritual #driveKnob,body.in-ritual #driveLbl,body.in-ritual #main-header,body.in-ritual #crosshair,body.in-ritual #ball-tracker,body.in-ritual #coach-layer,body.in-ritual #toolbars,body.in-ritual #inspector,body.in-ritual #topfade{display:none!important}
@@ -776,6 +782,7 @@ body.sheet-open #rig-ring{opacity:0;pointer-events:none}   /* browsing parts →
 #rr-hint{display:none!important}   /* replaced by the top HUD + labelled RIG/PARTS pills */
 </style>
 <div id="ritual" class="ov gone">
+    <button id="ritual-min" type="button" aria-label="minimise builder"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></button>
     <div class="r-tabs">
         <button class="r-tab active" id="r-tab-hello" data-tab="HELLO">HELLO</button>
         <button class="r-tab" id="r-tab-world" data-tab="WORLD">WORLD</button>
@@ -828,7 +835,7 @@ body.sheet-open #rig-ring{opacity:0;pointer-events:none}   /* browsing parts →
     </div>
     <button class="r-cta" id="ritual-cta"><span class="door-glyph">⌑</span> Enter world ↗</button>
 </div>
-<button id="ritual-reopen">HELLO · WORLD</button>
+<button id="ritual-reopen" type="button" aria-label="open builder"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 2v11h3v9l7-12h-4l4-8z"/></svg></button>
 <!-- RADIAL RING rig builder: the model is centred & untouched; every tool orbits it -->
 <div id="rig-ring" class="gone">
     <div id="rr-hint">tap a part · move rotate scale animate undo · parts by words</div>
@@ -13455,6 +13462,13 @@ Reply with ONLY a JSON array of 2–8 NEW parts, each: {"kind":"one of: ${KINDS}
     // play so you can change either one anytime (ritualComplete stays true).
     const reopen = $r('ritual-reopen');
     if (reopen) reopen.addEventListener('click', () => { document.body.classList.add('in-ritual'); overlay.classList.remove('gone'); setTab('HELLO'); try{ renderMyRig(); }catch(_){} });
+    // MOBILE CLOSE: minimise the builder back to the thunder pill (only after the
+    // first HELLO is done, so onboarding still completes). This is the close the
+    // main builder was missing on phones.
+    // The button is CSS-gated to `body.ritual-done.in-ritual`, so it only appears
+    // after onboarding — no need to re-check ritualComplete here; just minimise.
+    const minBtn = $r('ritual-min');
+    if (minBtn) minBtn.addEventListener('click', () => { document.body.classList.remove('in-ritual'); overlay.classList.add('gone'); });
 
     // LANDING: mark the pre-workbench state so the play HUD / AI bar stay hidden
     // behind the THUNDER RIGS card. Cleared the moment we open the ritual.
