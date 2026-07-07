@@ -709,6 +709,17 @@ body.ritual-done:not(.in-ritual) #ritual-reopen{display:flex}
 @keyframes ctaFlash{0%,100%{box-shadow:0 0 0 0 rgba(25,230,200,0);border-color:rgba(255,255,255,.14)}50%{box-shadow:0 0 26px 3px rgba(25,230,200,.5);border-color:rgba(25,230,200,.75)}}
 body.in-ritual #ritual-cta{animation:ctaFlash 1.6s ease-in-out infinite}
 body.in-ritual #ritual-cta .door-glyph{color:#19e6c8}
+/* TUTOR — a progressive coach: one command + one lever at a time, bottom card. */
+#tutor{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(max(16px,env(safe-area-inset-bottom)) + var(--keyboard,0px));z-index:120;width:min(440px,calc(100vw - 24px));background:rgba(10,12,16,.94);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border:1px solid rgba(25,230,200,.35);border-radius:16px;padding:14px 16px 12px;box-shadow:0 18px 50px rgba(0,0,0,.6);display:flex;flex-direction:column;gap:11px;transition:bottom .18s ease}
+#tutor.gone{display:none}
+#tutor .tutor-dots{display:flex;gap:6px;justify-content:center}
+#tutor .tutor-dots i{width:6px;height:6px;border-radius:50%;background:rgba(255,255,255,.22);transition:background .2s}
+#tutor .tutor-dots i.on{background:#19e6c8}
+#tutor .tutor-line{color:#eef2f5;font:700 15px/1.35 Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;text-align:center;letter-spacing:.01em}
+#tutor .tutor-row{display:flex;align-items:center;justify-content:space-between;gap:10px}
+#tutor .tutor-skip{background:none;border:none;color:#7f8b95;font:700 11px/1 inherit;letter-spacing:.1em;cursor:pointer;padding:8px 6px}
+#tutor .tutor-do{flex:1;background:#19e6c8;color:#04120f;border:none;border-radius:11px;padding:13px 16px;font:800 13px/1 Inter,-apple-system,sans-serif;letter-spacing:.05em;cursor:pointer;-webkit-tap-highlight-color:transparent}
+#tutor .tutor-do:active{transform:translateY(1px)}
 /* the STOWED field builder is a compact lightning toggle, not a wide empty pill */
 #ai-bar.std-agent-shell.stowed{width:auto!important;min-width:0!important;max-width:none!important;padding:9px 11px!important}
 /* CLOSE/MINIMISE the main builder — touch-sized, top-right, only once onboarding
@@ -1364,21 +1375,21 @@ body.watcher-role #crosshair{display:none!important}
 </div>
 
 <!-- HELP MODAL -->
+<div id="tutor" class="gone" role="dialog" aria-label="Guided start">
+    <div class="tutor-dots" id="tutor-dots"></div>
+    <div class="tutor-line" id="tutor-line"></div>
+    <div class="tutor-row">
+        <button class="tutor-skip" id="tutor-skip" type="button">skip</button>
+        <button class="tutor-do" id="tutor-do" type="button"></button>
+    </div>
+</div>
 <div id="help-modal">
     <div class="help-header">
-        <span>THUNDER RIGS | TUTORIAL &amp; MANUAL</span>
+        <span>THUNDER RIGS | MANUAL</span>
         <button id="btn-close-help" class="mini-btn" style="border-color:#ff2e2e; color:#ff2e2e; width: 24px;">X</button>
     </div>
     <div class="help-content">
-        <h3>★ QUICK START — HOW TO PLAY</h3>
-        <ul>
-            <li><span class="key">1 · HELLO</span> — say what your <b>rig</b> is (e.g. &ldquo;a titanium speeder with a wing&rdquo;). The AI builds the vehicle from your words.</li>
-            <li><span class="key">2 · WORLD</span> — switch to the <b>WORLD</b> tab and describe a place (&ldquo;a bone-desert temple&rdquo;). It generates a real, drivable world.</li>
-            <li><span class="key">3 · ENTER</span> — tap the flashing <span class="key">Enter world&nbsp;↗</span> portal to drop into it.</li>
-            <li><span class="key">4 · DRIVE</span> — joystick / WASD to move; JUMP, BOOST and FIRE (details below).</li>
-            <li><span class="key">5 · FIELD BUILDER&nbsp;⚡</span> — tap the <b>lightning</b> tab to summon structures &amp; drivable forts into the scene (&ldquo;a dragon gate&rdquo;); tap it again to close. Reopen HELLO/WORLD anytime with the red&nbsp;⚡ (top-left).</li>
-            <li><span class="key">6 · MULTIPLAYER</span> — open the menu (≡) → <b>host a room</b> and share the link or QR. Friends who join see your rig, your world, and every fort you build — <span class="key">build together in real time</span>.</li>
-        </ul>
+        <button id="btn-launch-tutor" type="button" style="width:100%;margin-bottom:14px;padding:12px;border:1px solid #19e6c8;border-radius:10px;background:rgba(25,230,200,.12);color:#19e6c8;font:800 12px/1 inherit;letter-spacing:.12em;cursor:pointer">▶ RUN THE GUIDED TUTORIAL</button>
         <h3>1. DRIVING & COMBAT</h3>
         <ul>
             <li><span class="key">Left Joystick (Mobile) / WASD (PC):</span> Steer and accelerate. Note: Steering is Camera-Relative! Up is always away from the camera.</li>
@@ -10835,6 +10846,41 @@ document.getElementById('btn-close-help').addEventListener('click', () => {
     document.getElementById('pause-indicator').classList.remove('show');
 });
 
+// ── TUTOR — a progressive, action-first coach. One command + one lever per step;
+// every button pulls a real in-game control. No wall of text, no "you will feel". ──
+(function(){
+  const el = document.getElementById('tutor');
+  if (!el) return;
+  const line = document.getElementById('tutor-line');
+  const dots = document.getElementById('tutor-dots');
+  const doBtn = document.getElementById('tutor-do');
+  const skip = document.getElementById('tutor-skip');
+  const tap = id => { try{ const n = document.getElementById(id); if (n) n.click(); }catch(_){} };
+  const openField = () => { try{ const b = document.getElementById('ai-bar'); if (b){ b.classList.remove('gone'); b.classList.remove('stowed'); document.body.classList.add('agent-line-open'); setTimeout(()=>{ try{ document.getElementById('ai-prompt-input').focus({preventScroll:true}); }catch(_){} }, 80); } }catch(_){} };
+  const steps = [
+    { t:'You built a rig and a world. Now drive — push the stick.', b:'DRIVE ›', act(){} },
+    { t:'Hold BOOST up ramps. Tap FIRE to break things.',          b:'GOT IT ›', act(){} },
+    { t:'Drop a fort in the field: tap ⚡, type it, it lands in front of you.', b:'⚡ OPEN FIELD BUILDER', act(){ openField(); } },
+    { t:'Rebuild your rig or world anytime: the red ⚡, top-left.', b:'GOT IT ›', act(){} },
+    { t:'Play together — host a room and hand over the link.',      b:'⧉ HOST A ROOM', act(){ tap('btn-mp-do-host'); }, last:true },
+  ];
+  let i = 0;
+  function render(){
+    line.textContent = steps[i].t;
+    doBtn.textContent = steps[i].b;
+    skip.textContent = steps[i].last ? 'close' : 'skip';
+    let d = ''; for (let k = 0; k < steps.length; k++) d += '<i class="' + (k===i?'on':'') + '"></i>'; dots.innerHTML = d;
+  }
+  function show(){ i = 0; el.classList.remove('gone'); render(); }
+  function hide(){ el.classList.add('gone'); }
+  function advance(){ const s = steps[i]; try{ s.act(); }catch(_){} if (s.last){ hide(); return; } i++; render(); }
+  doBtn.addEventListener('click', advance);
+  skip.addEventListener('click', hide);
+  const launch = document.getElementById('btn-launch-tutor');
+  if (launch) launch.addEventListener('click', () => { try{ document.getElementById('help-modal').classList.remove('show'); }catch(_){} show(); });
+  window.__tutor = { show, hide };
+})();
+
 document.getElementById('btn-cam').addEventListener('click', () => {
     camModeIdx = (camModeIdx + 1) % CAM_MODES.length;
     camMode = CAM_MODES[camModeIdx];
@@ -13510,8 +13556,8 @@ Reply with ONLY a JSON array of 2–8 NEW parts, each: {"kind":"one of: ${KINDS}
         // FIELD BUILDER stays reachable: park it as the compact lightning tab, so
         // one tap on the bolt always opens/closes it in play.
         try{ const _fb=document.getElementById('ai-bar'); if(_fb){ _fb.classList.remove('gone'); _fb.classList.add('stowed'); document.body.classList.remove('agent-line-open'); } }catch(_){}
-        // FIRST RUN: pop the quick tutorial once.
-        try{ if(!localStorage.getItem('trig.tutseen')){ localStorage.setItem('trig.tutseen','1'); setTimeout(()=>{ const h=document.getElementById('help-modal'); if(h){ h.classList.add('show'); const c=h.querySelector('.help-content'); if(c) c.scrollTop=0; } }, 650); } }catch(_){}
+        // FIRST RUN: run the guided coach once (progressive, action-first).
+        try{ if(!localStorage.getItem('trig.tutseen')){ localStorage.setItem('trig.tutseen','1'); setTimeout(()=>{ try{ window.__tutor && window.__tutor.show(); }catch(_){} }, 700); } }catch(_){}
         if (pendingRitualAutoJoin){ pendingRitualAutoJoin = false; setTimeout(()=>joinRoomUIHandler(false), 200); }
     }
     window.releaseToSneak = releaseToSneak;
