@@ -8398,6 +8398,54 @@ async function __genSection(kind){
     else if (kind === 'set'){ for (let mi = 0; mi < bp.motifs.length; mi++) for (const f of ['past','present','future']) await __genSet(mi, f); }
 }
 window.__filmGen = { cast: __genCast, set: __genSet, section: __genSection, built: __filmBuilt };
+
+// ── CAMVIZ — see the cameras: frustum wedges, dolly path, verify what each sees
+// Every shot in the reel drawn as its actual view cone (fov-accurate) with a
+// camera body and a dashed dolly path connecting them. "Show what the camera
+// sees, where it points, its path" — and click a SHOT/JUMP to fly there.
+const CAMVIZ = (() => {
+    let group = null, on = false;
+    function wedge(pos, tgt, fov, d, color){
+        const f = tgt.clone().sub(pos); if (f.lengthSq() < 1e-6) f.set(0,0,-1); f.normalize();
+        let up = new THREE.Vector3(0,1,0); if (Math.abs(f.dot(up)) > 0.98) up = new THREE.Vector3(0,0,1);
+        const right = new THREE.Vector3().crossVectors(f, up).normalize();
+        const camUp = new THREE.Vector3().crossVectors(right, f).normalize();
+        const h = d * Math.tan(fov * Math.PI / 360), w = h * 1.6;
+        const c = f.clone().multiplyScalar(d).add(pos);
+        const tl = c.clone().addScaledVector(right,-w).addScaledVector(camUp, h);
+        const tr = c.clone().addScaledVector(right, w).addScaledVector(camUp, h);
+        const bl = c.clone().addScaledVector(right,-w).addScaledVector(camUp,-h);
+        const br = c.clone().addScaledVector(right, w).addScaledVector(camUp,-h);
+        const P = [pos,tl, pos,tr, pos,bl, pos,br, tl,tr, tr,br, br,bl, bl,tl];
+        const geo = new THREE.BufferGeometry().setFromPoints(P);
+        return new THREE.LineSegments(geo, new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.85 }));
+    }
+    function build(){
+        clear();
+        const shots = (window.CINE && CINE.shots) || [];
+        if (!shots.length) return 0;
+        group = new THREE.Group(); group.userData.__camviz = true;
+        const fov = (typeof camera !== 'undefined' && camera.fov) ? camera.fov : 55;
+        const pts = [];
+        shots.forEach((s, i) => {
+            const pos = new THREE.Vector3().fromArray(s.p || [0,10,20]);
+            const tgt = new THREE.Vector3().fromArray(s.t || [0,0,0]);
+            pts.push(pos.clone());
+            const col = new THREE.Color().setHSL(((i / Math.max(1, shots.length)) * 0.45 + 0.55) % 1, 0.7, 0.62).getHex();
+            group.add(wedge(pos, tgt, fov, 8, col));
+            const body = new THREE.Mesh(new THREE.BoxGeometry(1.3, 1, 1.9), new THREE.MeshBasicMaterial({ color: col }));
+            body.position.copy(pos); try { body.lookAt(tgt); } catch(_){} group.add(body);
+        });
+        if (pts.length > 1){ const path = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineDashedMaterial({ color: 0xffd23f, dashSize: 1.3, gapSize: 0.7 })); path.computeLineDistances(); group.add(path); }
+        scene.add(group); on = true;
+        return shots.length;
+    }
+    function clear(){ if (group){ try { scene.remove(group); group.traverse(o => { try { o.geometry && o.geometry.dispose(); o.material && o.material.dispose && o.material.dispose(); } catch(_){} }); } catch(_){} group = null; } on = false; }
+    function toggle(){ if (on){ clear(); return 'cameras hidden'; } const n = build(); return n ? ('showing ' + n + ' cameras — frustums + dolly path') : 'no shots — "mark all shots" first'; }
+    function refresh(){ if (on) build(); }
+    return { build, clear, toggle, refresh, get on(){ return on; } };
+})();
+window.__camviz = CAMVIZ;
 // edit an asset's ready-made prompt in place (mutates the blueprint)
 function __editPrompt(getset){
     const cur = getset();
@@ -15677,6 +15725,24 @@ function runCommand(text){
             return { p, s };
         };
         const camWords = t.match(/\b(wide|close|low|aerial|behind|front)\b/);
+        // CAMVIZ — see every camera's frustum, direction and dolly path
+        if(/\b(show|hide|toggle|see)\b.*\b(camera|cameras|frustum|shots?)\b|\bcamera path\b/.test(t) && !/\bmark\b/.test(t)){
+            if (window.__camviz) return __camviz.toggle();
+        }
+        // MARK ALL SHOTS — populate the reel from the film plan, then you can visualize/verify
+        if(/\bmark all\b|\bmark (the |every )?shots?\b|\blay (out|down) (the )?shots?\b/.test(t)){
+            const bp = window.TWIN && TWIN.lastBlueprint; if (!bp || !bp.beats) return 'no film — compose one first';
+            const FNC = { perception:'wide', action:'behind', affection:'close', opsign:'aerial', sonsign:'low', crystal:'wide', recollection:'wide' };
+            let n = 0; bp.beats.forEach(b => { const cam = FNC[b.fn] || 'wide'; const subj = (b.subject || (bp.cast && bp.cast[0] && bp.cast[0].name) || 'me');
+                const r = BUS.say('mark a ' + cam + ' shot on ' + subj, 'plan'); if (/marked/.test(r)) n++; });
+            try { if (window.__camviz) __camviz.refresh(); } catch(_){}
+            return n + ' shots marked from the plan — "show cameras" to see the frustums';
+        }
+        // FOCUS ON X — frame the camera on any subject by naming it
+        if(/\bfocus (on|the camera on)\b/.test(t)){
+            const on = (t.split(/\bfocus (on|the camera on)\b/).pop() || '').trim();
+            __placeCam('close', on); return 'focused on ' + (on || 'subject');
+        }
         // COMPOSE A FILM (ABC CINEOSIS): prompt -> blueprint -> spoken direction on
         // the clock -> camera moves, cast, motif forts, cues, a marked reel.
         if(/\b(compose|make|write|direct)\b.*\bfilm\b.*\babout\b|\bfilm about\b|\bcineosis\b/.test(t)){
