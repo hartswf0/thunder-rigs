@@ -1,0 +1,22 @@
+{
+  "format": "thunder-rigs.twin/v1",
+  "meta": {
+    "id": "first-light",
+    "name": "FIRST LIGHT — a prompted performance",
+    "author": "hartswf0",
+    "description": "Every beat is a prompt. The set builds itself on the clock: a keep at dawn, a new rig, a watchtower, allies, an overdrive pad, a cup to sink. Unbaked — the engine bakes prompts to code on load (golden-matched; a model can overwrite any beat's code)."
+  },
+  "beats": [
+    { "at": 0,  "kind": "world", "prompt": "a castle keep on a mound at dawn",
+      "cam": { "p": [0, 26, 60], "t": [0, 5, 0], "travel": 4 } },
+    { "at": 10, "kind": "rig", "prompt": "a golden thunder truck",
+      "cam": { "p": [8, 3, 24], "subject": "player", "travel": 3 } },
+    { "at": 16, "kind": "fort", "prompt": "a watchtower hold", "anchor": { "x": 26, "z": -18 },
+      "cam": { "p": [34, 7, -2], "t": [26, 5, -18], "travel": 3 } },
+    { "at": 24, "kind": "say", "prompt": "spawn 2 ally bots",
+      "cam": { "p": [0, 14, 30], "subject": "player", "travel": 3 } },
+    { "at": 28, "kind": "say", "prompt": "an overdrive pad at center" },
+    { "at": 32, "kind": "say", "prompt": "a cup at center",
+      "cam": { "p": [-18, 6, 18], "t": [0, 2, 0], "travel": 4 } }
+  ]
+}

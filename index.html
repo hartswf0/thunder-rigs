@@ -11051,6 +11051,8 @@ document.getElementById('file-upload').addEventListener('change', (e) => {
             const data = JSON.parse(event.target.result);
             // TWIN: an operator-twin film plays on the drive-in screen with camera to match.
             if (data && data.format === 'operator-twin') { if (window.TWIN) TWIN.showFilm(data); e.target.value = ''; return; }
+            // THUNDER-TWIN: a prompted performance — every beat forges on the clock.
+            if (data && data.format === 'thunder-rigs.twin/v1') { if (window.TWIN) TWIN.performTwin(data); e.target.value = ''; return; }
             // CARTRIDGE: a .trig.json runs the full admission pipeline (CART.load);
             // legacy {name, objects} level saves take the old path unchanged.
             if (data && data.format === 'thunder-rigs.cartridge/v1') { CART.load(data); e.target.value = ''; return; }
@@ -15431,9 +15433,9 @@ function runCommand(text){
     try{
         // TWIN verbs — the drive-in film ("play the twin", "stop the twin")
         if(/\btwin\b/.test(t)){
-            if(/stop|end|kill|close/.test(t)) return (window.TWIN && TWIN.stop()) ? 'twin stopped' : 'no twin rolling';
-            if(window.TWIN && TWIN.playing) return 'twin already rolling — frame ' + TWIN.frame;
-            document.getElementById('file-upload')?.click(); return 'pick a .twin.json — it plays on the drive-in screen';
+            if(/stop|end|kill|close/.test(t)){ const a = window.TWIN && TWIN.stop(); const b = window.TWIN && TWIN.stopPerf(); return (a || b) ? 'twin stopped' : 'no twin rolling'; }
+            if(window.TWIN && TWIN.playing) return 'twin already rolling';
+            document.getElementById('file-upload')?.click(); return 'pick a .twin.json — a film screens, a beat-twin performs';
         }
         // cinema verbs first — they are specific words and never collide with build verbs
         if(/\bcut\b|stop (the )?(rec|record|film|reel)/.test(t)){ CINE.cut(); return 'cut'; }
@@ -15749,7 +15751,88 @@ const TWIN = (() => {
         if (window.AICON) AICON.log('TWIN · ' + f.name + ' · ' + f.frames.length + 'f @ ' + f.fps + 'fps', 'ok');
         return { ok: true, frames: f.frames.length, fps: f.fps, dur };
     }
-    return { showFilm, stop, tick, get playing() { return !!show; }, get frame() { return show ? show.idx : -1; } };
+    // ── THUNDER-TWIN — a performance where every beat is a PROMPT ────────────
+    // { format:'thunder-rigs.twin/v1', meta, beats:[{at, kind, prompt, code?,
+    //   anchor?, cam:{p,t,subject,travel}}] }. kinds: world|rig|fort|mechanic|say.
+    // BAKE resolves each prompt to code (golden libraries prompt-matched via
+    // .pick keyword scoring; the model can overwrite b.code later — prompt and
+    // compiled answer travel together, law #5). PERFORM fires baked beats on a
+    // deterministic clock while CINE drives one camera shot per beat, subjects
+    // bound live. "Prompt a house, prompt a car, prompt motions" — on beat.
+    let perf = null;   // { beats, t0, fired:Set, name }
+    function bake(doc) {
+        (doc.beats || []).forEach(b => {
+            if (!b || b.code || b.kind === 'say' || b.kind === 'cam') return;
+            try {
+                let g = null;
+                if (b.kind === 'world' && window.GOLDEN_WORLDS) g = GOLDEN_WORLDS.pick(b.prompt || '');
+                else if (b.kind === 'fort' && window.GOLDEN_DRAFTS) g = GOLDEN_DRAFTS.pick(b.prompt || '');
+                else if (b.kind === 'rig' && window.GOLDEN) g = GOLDEN.pick(b.prompt || '');
+                else if (b.kind === 'mechanic') { b.code = GOLDEN_MECHANIC.code; b.baked = 'golden:ring-run'; return; }
+                if (g && g.entry && g.entry.code) { b.code = g.entry.code; b.baked = 'golden:' + (g.entry.name || g.id); }
+            } catch (e) { console.warn('[twin bake]', b.kind, e); }
+        });
+        return doc;
+    }
+    function fireBeat(b, i) {
+        try {
+            if (b.kind === 'say' && b.prompt) return BUS.say(b.prompt, 'twin');
+            if (b.kind === 'world' && b.code) return window.__applyForgeWorld(b.code);
+            if (b.kind === 'fort' && b.code) {
+                const id = b.id || ('twin-fort-' + i);
+                const r = window.__applyForgeFort(b.code, b.anchor || { x: 0, z: -20 }, id);
+                try { window.__broadcastFort(id, b.code, b.anchor || { x: 0, z: -20 }); } catch(_){}
+                return r;
+            }
+            if (b.kind === 'rig' && b.code) return applyLoadout(Object.assign({}, myLoadout, { vcode: b.code }));
+            if (b.kind === 'mechanic' && b.code) return MODES.install(b.code, (b.prompt || 'twin-mode').slice(0, 24));
+        } catch (e) { console.warn('[twin beat]', i, e); }
+    }
+    function performTwin(doc) {
+        stopPerf(); bake(doc);
+        const beats = (doc.beats || []).slice().sort((a, b) => (a.at || 0) - (b.at || 0));
+        if (!beats.length) { notify('TWIN HAS NO BEATS'); return { ok: false }; }
+        // one CINE shot per beat that declares a camera; hold spans to the next beat
+        const total = (beats[beats.length - 1].at || 0) + 8;
+        const shots = [];
+        beats.forEach((b, i) => {
+            if (!b.cam) return;
+            const next = beats[i + 1] ? (beats[i + 1].at || 0) : total;
+            const span = Math.max(2, next - (b.at || 0));
+            const travel = Math.min(+(b.cam.travel) || 2.4, span * 0.6);
+            shots.push({ p: b.cam.p || [0, 12, 30], t: b.cam.t || [0, 2, 0],
+                mode: b.cam.subject === 'player' ? 'CAR' : (b.cam.subject === 'ball' ? 'BALL' : 'FREE'),
+                travel, hold: Math.max(0.1, span - travel) });
+        });
+        if (shots.length && window.CINE && CINE.restore) { CINE.restore({ v: 1, shots }); try { CINE.play(false); } catch(_){} }
+        perf = { beats, t0: performance.now(), fired: new Set(), name: (doc.meta && doc.meta.id) || 'twin' };
+        notify('◉ TWIN PERFORMING — ' + beats.length + ' BEATS · ' + shots.length + ' SHOTS');
+        return { ok: true, beats: beats.length, shots: shots.length };
+    }
+    function stopPerf() {
+        if (!perf) return false;
+        perf = null;
+        try { window.CINE && CINE.stopPlay && CINE.stopPlay(true); } catch(_){}
+        return true;
+    }
+    const filmTick = tick;
+    function tickAll(now) {
+        filmTick(now);
+        if (!perf) return;
+        const t = (now - perf.t0) / 1000;
+        for (let i = 0; i < perf.beats.length; i++) {
+            const b = perf.beats[i];
+            if (!perf.fired.has(i) && t >= (b.at || 0)) {
+                perf.fired.add(i);
+                fireBeat(b, i);
+                if (window.AICON) AICON.log('TWIN beat ' + (i + 1) + '/' + perf.beats.length + ' · ' + b.kind + (b.baked ? ' (' + b.baked + ')' : '') + ' · "' + String(b.prompt || '').slice(0, 40) + '"', 'ok');
+            }
+        }
+        if (perf.fired.size === perf.beats.length && t > (perf.beats[perf.beats.length - 1].at || 0) + 8) { notify('TWIN COMPLETE'); perf = null; }
+    }
+    return { showFilm, stop, performTwin, stopPerf, bake, tick: tickAll,
+        get playing() { return !!show || !!perf; }, get frame() { return show ? show.idx : -1; },
+        get beat() { return perf ? perf.fired.size : -1; } };
 })();
 window.TWIN = TWIN;
 
