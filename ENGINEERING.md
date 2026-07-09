@@ -206,6 +206,20 @@ run. See [README.md](README.md).)
 
 ---
 
+## 5. The cartridge — games as data
+
+Everything above converges in one portable artifact: the **cartridge**
+(`*.trig.json`) — world + entities + rules + ui + cine as a single schema-checked
+document. It is simultaneously the save format, the course library entry, the
+multiplayer payload (its fragments are the sync messages), the LLM's next output
+contract, and the Godot export source. Design doc:
+**[cart/CARTRIDGE.md](cart/CARTRIDGE.md)** · contract:
+[`cart/cartridge.schema.json`](cart/cartridge.schema.json) · proof:
+`cd cart && node validate.mjs` (examples pass, nine-sabotage negative battery
+rejects).
+
+---
+
 ## Where to look in the code
 
 | Concern | Symbols |

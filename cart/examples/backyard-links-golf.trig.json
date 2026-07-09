@@ -1,0 +1,50 @@
+{
+  "format": "thunder-rigs.cartridge/v1",
+  "meta": {
+    "id": "backyard-links-golf",
+    "name": "BACKYARD LINKS · GOLF",
+    "author": "hartswf0",
+    "created": "2026-07-08T00:00:00Z",
+    "description": "A hand-placed three-cup course — proof that an editor save (objects rows, no generation code) is already a cartridge.",
+    "tags": ["golf", "editor-built", "solo"]
+  },
+  "world": {
+    "atmosphere": { "sky": "#9fc7d8", "fog": "#b8d2dc", "ground": "#2f4a35" },
+    "objects": [
+      {
+        "id": "ramp-1", "isAssembly": false, "type": "ramp", "name": "TEE RAMP",
+        "dims": { "l": 6.0, "h": 0.2, "w": 6.0 }, "def": { "c": 1118481, "ec": 15368968 },
+        "pos": [0, 0.1, -10], "rot": [0, 0, 0, 1], "scale": [1, 1, 1]
+      },
+      {
+        "id": "wall-1", "isAssembly": false, "type": "panel", "name": "BACKSTOP",
+        "dims": { "l": 4.0, "h": 4.0, "w": 0.1 }, "def": { "c": 1118481, "ec": 1697480 },
+        "pos": [0, 2, -46], "rot": [0, 0, 0, 1], "scale": [1, 1, 1]
+      },
+      {
+        "id": "block-1", "isAssembly": false, "type": "block", "name": "DOGLEG",
+        "dims": { "l": 2.0, "h": 2.0, "w": 2.0 }, "def": { "c": 1118481, "ec": 16777215 },
+        "pos": [12, 1, -28], "rot": [0, 0.3826834, 0, 0.9238795], "scale": [1, 1, 1]
+      },
+      {
+        "id": "pipe-1", "isAssembly": false, "type": "quarterpipe", "name": "BANK",
+        "dims": { "l": 6.0, "h": 6.0, "w": 6.0 }, "def": { "c": 1118481, "ec": 65416 },
+        "pos": [-18, 3, -30], "rot": [0, 0.7071068, 0, 0.7071068], "scale": [1, 1, 1]
+      }
+    ]
+  },
+  "entities": [
+    { "kind": "ball", "id": "ball", "at": { "x": 0, "z": 10 } },
+    { "kind": "target", "id": "cup-1", "at": { "x": 0, "z": -44 }, "radius": 2, "cup": true },
+    { "kind": "target", "id": "cup-2", "at": { "x": 16, "z": -34 }, "radius": 2, "cup": true },
+    { "kind": "target", "id": "cup-3", "at": { "x": -22, "z": -36 }, "radius": 2, "cup": true }
+  ],
+  "rules": {
+    "mode": "golf",
+    "winCondition": { "type": "holes", "value": 3 }
+  },
+  "ui": {
+    "hudSlots": { "status": "score" },
+    "chips": [{ "label": "RESET BALL", "say": "put the ball back on the tee" }]
+  }
+}

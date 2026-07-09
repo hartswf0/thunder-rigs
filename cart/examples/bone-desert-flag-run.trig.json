@@ -1,0 +1,61 @@
+{
+  "format": "thunder-rigs.cartridge/v1",
+  "meta": {
+    "id": "bone-desert-flag-run",
+    "name": "BONE DESERT · FLAG RUN",
+    "author": "hartswf0",
+    "created": "2026-07-08T00:00:00Z",
+    "engine": { "min": "1.0.0" },
+    "description": "Rib-cage gate between two skull mesas. Two teams, three caps wins, the warden fortifies the middle.",
+    "tags": ["desert", "ctf", "2-8 players"]
+  },
+  "world": {
+    "atmosphere": { "sky": "#b8a58c", "fog": "#8f7f68", "ground": "#2e2620" },
+    "prompt": "a bone desert with a rib-cage gate and skull mesas",
+    "code": "function build(w, WG, THREE){\n  WG.atmosphere({sky:'#b8a58c', fog:'#8f7f68', ground:'#2e2620'});\n  WG.thesis({landform:'flat', topology:'lanes'});\n  const sand=WG.flat(0x8a7a5e,{rough:0.95}), bone=WG.flat(0xd9cfae,{rough:0.8}), dark=WG.flat(0x2e2620,{rough:1});\n  const g0=WG.box(160,1.4,160,sand); WG.put(g0,0,-0.7,0); WG.surface(g0,160,1.4,160);\n  WG.mound(-55,-30,14,4); WG.mound(55,30,14,4);\n  for(let i=0;i<7;i++){ const rib=WG.box(1.2,10-Math.abs(i-3)*1.6,1.2,bone); WG.put(rib,-18+i*6,(10-Math.abs(i-3)*1.6)/2,-40,0.12*(i-3)); WG.solid(rib,1.2,10-Math.abs(i-3)*1.6,1.2); }\n  for(let s=-1;s<=1;s+=2){ const mesa=WG.box(14,6,14,dark); WG.put(mesa,s*60,3,0); WG.solid(mesa,14,6,14); const ramp=WG.ramp(s*48,0,s>0?-1.57:1.57,10,3,8); }\n  WG.ridge(0,52,0,40,10,2.2);\n  const rand=WG.rand(7);\n  WG.scatter(10,20,70,7,(x,z,i,rnd)=>{ const r=WG.box(2+rnd()*2,1.5+rnd()*2,2+rnd()*2,bone); WG.put(r,x,1,z,rnd()*3); WG.solid(r,3,2.5,3); });\n  return w;\n}",
+    "cert": {
+      "forge": { "meshes": 96, "tris": 2048, "ms": 6, "hash": "afbf748f" },
+      "world": { "hash": "5a9642ff", "violations": 0, "drivable": { "drivableFraction": 0.74, "connectedFraction": 0.98 } }
+    }
+  },
+  "entities": [
+    {
+      "kind": "vehicle", "id": "p1", "at": { "x": 0, "z": 15 },
+      "rig": { "spec": { "color": 1697480, "accent": 16764735, "body": 2, "spoiler": 2, "theme": "DUNE VIPER" } }
+    },
+    {
+      "kind": "bot", "id": "ossuary-warden", "at": { "x": 0, "z": -52 },
+      "rig": { "spec": { "color": 14198842, "body": 1 } },
+      "mind": { "prompt": "guard the rib gate; fortify the middle when idle; chase flag carriers", "aggression": 0.7 }
+    },
+    {
+      "kind": "fort", "id": "f-ribgate", "anchor": { "x": 0, "z": -40 },
+      "code": "function build(w, WG, THREE){\n  const bone=WG.flat(0xd9cfae,{rough:0.8});\n  const wallL=WG.box(6,4,1.5,bone); WG.put(wallL,-5,2,0); WG.solid(wallL,6,4,1.5);\n  const wallR=WG.box(6,4,1.5,bone); WG.put(wallR,5,2,0); WG.solid(wallR,6,4,1.5);\n  const lintel=WG.box(6,1.2,1.5,bone); WG.put(lintel,0,5,0); WG.solid(lintel,6,1.2,1.5);\n  return w;\n}"
+    },
+    { "kind": "flag", "id": "flag-blue", "team": "BLUE", "at": { "x": -60, "z": 0, "y": 6.5 } },
+    { "kind": "flag", "id": "flag-red", "team": "RED", "at": { "x": 60, "z": 0, "y": 6.5 } },
+    { "kind": "powerup", "id": "boost-mid", "at": { "x": 0, "z": 52 }, "effect": "overdrive", "respawn": 20 }
+  ],
+  "rules": {
+    "mode": "flag-run",
+    "teams": 2,
+    "timers": { "prep": 20, "match": 300 },
+    "winCondition": { "type": "caps", "value": 3 },
+    "bots": { "count": 2, "ai": true }
+  },
+  "ui": {
+    "hudSlots": { "status": "score" },
+    "chips": [
+      { "label": "FORTIFY", "say": "fortify the nearest flag" },
+      { "label": "RESET", "say": "reset my rig" }
+    ]
+  },
+  "cine": {
+    "shots": [
+      { "p": [40, 18, 40], "t": [0, 2, 0], "mode": "FREE", "hold": 1.0, "travel": 2.4 },
+      { "p": [0, 4, -60], "t": [0, 5, -40], "mode": "FREE", "hold": 1.6, "travel": 3.2, "subject": "f-ribgate" },
+      { "p": [-70, 8, 12], "t": [-60, 6, 0], "mode": "FREE", "hold": 1.2, "travel": 2.8, "subject": "flag-blue" }
+    ]
+  },
+  "net": { "world": "latest-wins", "forts": "accumulate" }
+}

@@ -1,0 +1,299 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://hartswf0.github.io/thunder-rigs/cart/cartridge.schema.json",
+  "title": "Thunder Rigs Cartridge",
+  "description": "A game as data: world + entities + rules + ui + cine, loaded by one engine. See CARTRIDGE.md for the design laws.",
+  "type": "object",
+  "required": ["format", "meta", "world"],
+  "additionalProperties": false,
+  "properties": {
+    "format": { "const": "thunder-rigs.cartridge/v1" },
+
+    "meta": {
+      "type": "object",
+      "required": ["id", "name"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{1,63}$" },
+        "name": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "author": { "type": "string", "maxLength": 80 },
+        "created": { "type": "string", "format": "date-time" },
+        "engine": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": { "min": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$" } }
+        },
+        "description": { "type": "string", "maxLength": 400 },
+        "thumbnail": { "type": "string", "maxLength": 200000, "description": "data: URI or relative path" },
+        "tags": { "type": "array", "maxItems": 12, "items": { "type": "string", "maxLength": 32 } }
+      }
+    },
+
+    "world": {
+      "type": "object",
+      "required": ["atmosphere"],
+      "additionalProperties": false,
+      "anyOf": [{ "required": ["code"] }, { "required": ["objects"] }],
+      "properties": {
+        "atmosphere": {
+          "type": "object",
+          "required": ["sky", "fog", "ground"],
+          "additionalProperties": false,
+          "properties": {
+            "sky": { "$ref": "#/$defs/hexColor" },
+            "fog": { "$ref": "#/$defs/hexColor" },
+            "ground": { "$ref": "#/$defs/hexColor" }
+          }
+        },
+        "code": { "$ref": "#/$defs/worldCode" },
+        "objects": { "type": "array", "maxItems": 400, "items": { "$ref": "#/$defs/objectRow" } },
+        "prompt": { "type": "string", "maxLength": 400 },
+        "cert": { "$ref": "#/$defs/certBlock" }
+      }
+    },
+
+    "entities": {
+      "type": "array",
+      "maxItems": 64,
+      "items": { "$ref": "#/$defs/entity" }
+    },
+
+    "rules": {
+      "type": "object",
+      "required": ["mode"],
+      "additionalProperties": false,
+      "properties": {
+        "mode": { "enum": ["free-build", "flag-run", "golf", "hide-and-sneak", "overdrive", "targets", "custom"] },
+        "teams": { "type": "integer", "minimum": 1, "maximum": 4 },
+        "timers": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "prep": { "type": "number", "minimum": 0, "maximum": 600 },
+            "match": { "type": "number", "minimum": 30, "maximum": 3600 }
+          }
+        },
+        "winCondition": {
+          "type": "object",
+          "required": ["type", "value"],
+          "additionalProperties": false,
+          "properties": {
+            "type": { "enum": ["caps", "holes", "score", "survive", "targets"] },
+            "value": { "type": "number", "minimum": 1 }
+          }
+        },
+        "bots": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "count": { "type": "integer", "minimum": 0, "maximum": 8 },
+            "ai": { "type": "boolean" }
+          }
+        },
+        "code": { "$ref": "#/$defs/modeCode", "description": "required when mode=custom: function mode(game, THREE){…}, run in the SHADOWED sandbox via FORGE.executeEntry" }
+      },
+      "if": { "properties": { "mode": { "const": "custom" } } },
+      "then": { "required": ["mode", "code"] }
+    },
+
+    "ui": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "hudSlots": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": { "status": { "enum": ["score", "timer", "none"] } }
+        },
+        "chips": {
+          "type": "array",
+          "maxItems": 8,
+          "items": {
+            "type": "object",
+            "required": ["label", "say"],
+            "additionalProperties": false,
+            "properties": {
+              "label": { "type": "string", "minLength": 1, "maxLength": 16 },
+              "say": { "type": "string", "minLength": 1, "maxLength": 160 }
+            }
+          }
+        }
+      }
+    },
+
+    "cine": {
+      "type": "object",
+      "required": ["shots"],
+      "additionalProperties": false,
+      "properties": {
+        "shots": {
+          "type": "array",
+          "maxItems": 24,
+          "items": {
+            "type": "object",
+            "required": ["p", "t"],
+            "additionalProperties": false,
+            "properties": {
+              "p": { "$ref": "#/$defs/vec3" },
+              "t": { "$ref": "#/$defs/vec3" },
+              "mode": { "type": "string", "maxLength": 16 },
+              "hold": { "type": "number", "minimum": 0, "maximum": 30 },
+              "travel": { "type": "number", "minimum": 0.1, "maximum": 60 },
+              "subject": { "type": "string", "maxLength": 64, "description": "entity id to follow / look at" }
+            }
+          }
+        }
+      }
+    },
+
+    "net": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "world": { "enum": ["latest-wins"] },
+        "forts": { "enum": ["accumulate"] }
+      }
+    }
+  },
+
+  "$defs": {
+    "hexColor": { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$" },
+    "vec3": { "type": "array", "minItems": 3, "maxItems": 3, "items": { "type": "number" } },
+    "quat": { "type": "array", "minItems": 4, "maxItems": 4, "items": { "type": "number" } },
+    "worldCode": {
+      "type": "string",
+      "minLength": 24,
+      "maxLength": 32000,
+      "pattern": "function\\s+build\\s*\\(",
+      "description": "function build(w, WG, THREE){…} — regenerated by the FORGE, admitted by WORLDCERT"
+    },
+    "rigCode": {
+      "type": "string",
+      "minLength": 24,
+      "maxLength": 20000,
+      "pattern": "function\\s+build\\s*\\(",
+      "description": "function build(g, VG, THREE){…} — the vcode transmit ceiling is 20k"
+    },
+    "modeCode": {
+      "type": "string",
+      "minLength": 24,
+      "maxLength": 20000,
+      "pattern": "function\\s+mode\\s*\\("
+    },
+    "at": {
+      "type": "object",
+      "required": ["x", "z"],
+      "additionalProperties": false,
+      "properties": {
+        "x": { "type": "number", "minimum": -85, "maximum": 85 },
+        "y": { "type": "number", "minimum": -2, "maximum": 60 },
+        "z": { "type": "number", "minimum": -85, "maximum": 85 },
+        "ry": { "type": "number" }
+      }
+    },
+    "objectRow": {
+      "type": "object",
+      "required": ["type", "dims", "def", "pos", "rot", "scale"],
+      "properties": {
+        "id": { "type": "string" },
+        "isAssembly": { "type": "boolean" },
+        "type": { "type": "string", "maxLength": 24 },
+        "name": { "type": "string", "maxLength": 48 },
+        "dims": {
+          "type": "object",
+          "properties": {
+            "l": { "type": ["number", "null"] },
+            "h": { "type": ["number", "null"] },
+            "w": { "type": ["number", "null"] }
+          }
+        },
+        "def": {
+          "type": "object",
+          "required": ["c", "ec"],
+          "properties": { "c": { "type": "integer" }, "ec": { "type": "integer" } }
+        },
+        "pos": { "$ref": "#/$defs/vec3" },
+        "rot": { "$ref": "#/$defs/quat" },
+        "scale": { "$ref": "#/$defs/vec3" },
+        "fort": { "type": "boolean" },
+        "ownerBotId": { "type": ["string", "null"] },
+        "animType": {}, "animAxis": {}, "animSpeed": {}, "animRange": {},
+        "children": { "type": "array" }
+      }
+    },
+    "rigBlock": {
+      "type": "object",
+      "additionalProperties": false,
+      "anyOf": [{ "required": ["spec"] }, { "required": ["vcode"] }, { "required": ["rp"] }],
+      "properties": {
+        "spec": { "type": "object", "description": "parametric loadout: color/accent/body/spoiler/theme/topper/front/side/rear/face/max*" },
+        "vcode": { "$ref": "#/$defs/rigCode" },
+        "rp": { "type": "array", "maxItems": 24, "description": "ritual-authored freeform parts" }
+      }
+    },
+    "entity": {
+      "type": "object",
+      "required": ["kind", "id"],
+      "properties": {
+        "kind": { "enum": ["vehicle", "bot", "fort", "powerup", "goal", "target", "ball", "flag"] },
+        "id": { "type": "string", "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$" },
+        "at": { "$ref": "#/$defs/at" },
+        "rig": { "$ref": "#/$defs/rigBlock" },
+        "mind": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "prompt": { "type": "string", "minLength": 1, "maxLength": 300 },
+            "aggression": { "type": "number", "minimum": 0, "maximum": 1 }
+          }
+        },
+        "code": { "$ref": "#/$defs/worldCode" },
+        "anchor": {
+          "type": "object",
+          "required": ["x", "z"],
+          "additionalProperties": false,
+          "properties": { "x": { "type": "number" }, "z": { "type": "number" } }
+        },
+        "objects": { "type": "array", "maxItems": 200, "items": { "$ref": "#/$defs/objectRow" } },
+        "team": { "type": "string", "maxLength": 16 },
+        "effect": { "enum": ["overdrive", "repair", "shield", "ammo"] },
+        "respawn": { "type": "number", "minimum": 0, "maximum": 600 },
+        "radius": { "type": "number", "minimum": 0.5, "maximum": 30 },
+        "cup": { "type": "boolean" }
+      },
+      "allOf": [
+        { "if": { "properties": { "kind": { "const": "fort" } } },
+          "then": { "required": ["kind", "id", "anchor"], "anyOf": [{ "required": ["code"] }, { "required": ["objects"] }] } },
+        { "if": { "properties": { "kind": { "const": "bot" } } },
+          "then": { "required": ["kind", "id", "at"] } },
+        { "if": { "properties": { "kind": { "const": "powerup" } } },
+          "then": { "required": ["kind", "id", "at", "effect"] } },
+        { "if": { "properties": { "kind": { "const": "flag" } } },
+          "then": { "required": ["kind", "id", "at", "team"] } }
+      ]
+    },
+    "certBlock": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "last known certs — shelf display only; the engine ALWAYS re-certifies on load",
+      "properties": {
+        "forge": {
+          "type": "object",
+          "properties": {
+            "meshes": { "type": "integer" }, "tris": { "type": "integer" },
+            "ms": { "type": "number" }, "hash": { "type": "string", "pattern": "^[0-9a-f]{8}$" }
+          }
+        },
+        "world": {
+          "type": "object",
+          "properties": {
+            "hash": { "type": "string", "pattern": "^[0-9a-f]{8}$" },
+            "violations": { "type": "integer" },
+            "drivable": { "type": "object" },
+            "contrast": { "type": "object" }
+          }
+        }
+      }
+    }
+  }
+}
