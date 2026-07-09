@@ -11035,6 +11035,66 @@ document.getElementById('btn-file-save').addEventListener('click', () => {
     downloadFile(blob, doc.meta.id + '.trig.json');
     notify('CARTRIDGE SAVED · ' + doc.meta.id + '.trig.json');
 });
+// ── ONE INGESTER: any document, from anywhere (picker, drag-drop, ?twin= URL),
+// routes to the right runtime — and gets the game into play FIRST, so loading a
+// thing IS playing it. No ritual, no menus.
+function autoEnterPlay() {
+    try {
+        if (document.body.classList.contains('pre-enter') || document.body.classList.contains('in-ritual') || !document.body.classList.contains('ritual-done')) {
+            if (typeof window.releaseToSneak === 'function') window.releaseToSneak();
+        }
+    } catch (e) { console.warn('[ingest] enter', e); }
+}
+window.__ingestData = function (data, srcName) {
+    if (!data || typeof data !== 'object') { notify('NOT A THUNDER DOCUMENT'); return false; }
+    // TWIN: an operator-twin loads as the WHOLE experience — the film screens on
+    // the drive-in AND its transcription performs around it, camera included.
+    if (data.format === 'operator-twin') {
+        autoEnterPlay();
+        if (window.TWIN) {
+            TWIN.showFilm(data, { noCam: true });
+            try { TWIN.performTwin(TWIN.transcribe(data)); } catch (err) { console.warn('[twin transcribe]', err); }
+            notify('FILM + TRANSCRIPTION ROLLING — say "save the twin" to keep the 3D version');
+        }
+        return true;
+    }
+    // THUNDER-TWIN: a prompted performance — beats forge on the clock.
+    if (data.format === 'thunder-rigs.twin/v1') { autoEnterPlay(); if (window.TWIN) TWIN.performTwin(data); return true; }
+    // CARTRIDGE: the full admission pipeline.
+    if (data.format === 'thunder-rigs.cartridge/v1') { autoEnterPlay(); CART.load(data); return true; }
+    // legacy {name, objects} level saves, unchanged
+    saveState();
+    if (data.name) document.getElementById('scene-name').value = data.name;
+    applyState(data.objects || data);
+    if (data.cine && window.CINE) CINE.restore(data.cine);
+    notify("LEVEL LOADED");
+    return true;
+};
+// DRAG & DROP anywhere: dropping a file on the window is loading it is playing it.
+// (The AI bar's own image-drop handler stops propagation, so it keeps working.)
+window.addEventListener('dragover', e => { e.preventDefault(); });
+window.addEventListener('drop', e => {
+    const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+    if (!f) return;
+    e.preventDefault();
+    if (/\.html?$/i.test(f.name)) { if (window.GAME_HOST && GAME_HOST.loadHtmlGame) { autoEnterPlay(); GAME_HOST.loadHtmlGame(f); } return; }
+    if (!/\.json$/i.test(f.name)) return;
+    notify('LOADING ' + f.name.toUpperCase() + '…');
+    const rd = new FileReader();
+    rd.onload = ev => { try { window.__ingestData(JSON.parse(ev.target.result), f.name); } catch (err) { notify('COULD NOT READ ' + f.name); console.warn('[drop]', err); } };
+    rd.readAsText(f);
+});
+// ?twin= / ?cart= URL: a link that just plays (e.g. ?twin=twins/flashing-lights.twin.json)
+setTimeout(() => {
+    try {
+        const q = new URLSearchParams(location.search);
+        const url = q.get('twin') || q.get('cart');
+        if (!url) return;
+        notify('FETCHING ' + url.split('/').pop().toUpperCase() + '…');
+        fetch(url).then(r => r.json()).then(d => window.__ingestData(d, url))
+            .catch(err => { notify('COULD NOT LOAD ' + url.split('/').pop()); console.warn('[url ingest]', err); });
+    } catch(_){}
+}, 900);
 document.getElementById('btn-file-load').addEventListener('click', () => document.getElementById('file-upload').click());
 document.getElementById('file-upload').addEventListener('change', (e) => {
     const file = e.target.files[0]; if(!file) return;
@@ -11049,27 +11109,8 @@ document.getElementById('file-upload').addEventListener('change', (e) => {
     reader.onload = (event) => {
         try {
             const data = JSON.parse(event.target.result);
-            // TWIN: an operator-twin loads as the WHOLE experience — the film screens
-            // on the drive-in AND its transcription performs around it (world, forts,
-            // motions, camera — all directed from the film's own signals).
-            if (data && data.format === 'operator-twin') {
-                if (window.TWIN) {
-                    TWIN.showFilm(data, { noCam: true });                 // the performance owns the camera
-                    try { TWIN.performTwin(TWIN.transcribe(data)); } catch (err) { console.warn('[twin transcribe]', err); }
-                    notify('FILM + TRANSCRIPTION ROLLING — say "save the twin" to keep the 3D version');
-                }
-                e.target.value = ''; return;
-            }
-            // THUNDER-TWIN: a prompted performance — every beat forges on the clock.
-            if (data && data.format === 'thunder-rigs.twin/v1') { if (window.TWIN) TWIN.performTwin(data); e.target.value = ''; return; }
-            // CARTRIDGE: a .trig.json runs the full admission pipeline (CART.load);
-            // legacy {name, objects} level saves take the old path unchanged.
-            if (data && data.format === 'thunder-rigs.cartridge/v1') { CART.load(data); e.target.value = ''; return; }
-            saveState(); // Save before overwriting
-            if (data.name) document.getElementById('scene-name').value = data.name;
-            applyState(data.objects || data);
-            if (data.cine && window.CINE) CINE.restore(data.cine);
-            notify("LEVEL LOADED");
+            window.__ingestData(data);
+            e.target.value = '';
         } catch(err) { notify("LOAD FAILED"); }
     };
     reader.readAsText(file);
