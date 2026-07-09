@@ -98,7 +98,14 @@ body.menu-open #toolbars { top:max(72px,calc(env(safe-area-inset-top) + 56px)); 
 .bbtn .gly{width:16px;height:12px; border: 2px solid currentColor; margin-bottom: 2px;}
 
 /* ---- SCENE GRAPH (LEFT SIDE) ---- */
-#scene-graph { position: absolute; left: 16px; top: max(60px, env(safe-area-inset-top)); max-height: 40vh; width: 180px; background: #000a; border: 1px solid #00ff88; backdrop-filter: blur(10px); display: none; flex-direction: column; z-index: 9; pointer-events: auto; box-shadow: 0 4px 15px rgba(0,0,0,0.5); }
+#scene-graph { position: absolute; left: 12px; top: max(60px, calc(env(safe-area-inset-top) + 8px)); max-height: min(72vh, 640px); width: 248px; background: rgba(6,9,12,.92); border: 1px solid rgba(0,255,136,.45); border-radius: 12px; backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); display: none; flex-direction: column; z-index: 9; pointer-events: auto; box-shadow: 0 10px 34px rgba(0,0,0,0.6); overflow: hidden; }
+/* the styled scrollbar the graph was missing */
+#scene-graph .sg-list{ scrollbar-width: thin; scrollbar-color: rgba(25,230,200,.5) transparent; }
+#scene-graph .sg-list::-webkit-scrollbar{ width: 8px; }
+#scene-graph .sg-list::-webkit-scrollbar-track{ background: transparent; }
+#scene-graph .sg-list::-webkit-scrollbar-thumb{ background: linear-gradient(rgba(25,230,200,.55), rgba(168,85,247,.55)); border-radius: 8px; border: 2px solid transparent; background-clip: padding-box; }
+#scene-graph .sg-list::-webkit-scrollbar-thumb:hover{ background: rgba(25,230,200,.85); background-clip: padding-box; }
+#scene-graph .sg-header{ padding:9px 12px; font-size:10px; letter-spacing:.16em; color:#8affc8; border-bottom:1px solid rgba(0,255,136,.2); font-weight:800; }
 #scene-graph.show { display: flex; }
 #scene-graph .sg-group{display:flex;align-items:center;gap:6px;padding:4px 8px;cursor:pointer;background:rgba(0,255,136,.09);border-top:1px solid rgba(0,255,136,.20);font-weight:700;font-size:10px;letter-spacing:.04em;color:#8affc8;text-transform:uppercase}
 #scene-graph .sg-group .sg-gtwist{width:10px;color:#00ff88;flex:0 0 auto}
@@ -106,10 +113,22 @@ body.menu-open #toolbars { top:max(72px,calc(env(safe-area-inset-top) + 56px)); 
 #scene-graph .sg-group .sg-gcount{flex:0 0 auto;background:rgba(0,255,136,.22);border-radius:8px;padding:0 6px;color:#d6ffe9;font-size:9px}
 #scene-graph .sg-group .sg-gdel{flex:0 0 auto;background:none;border:0;color:#ff6a6a;cursor:pointer;font-size:11px;padding:0 2px;line-height:1}
 #scene-graph .sg-item.sg-child{padding-left:22px;opacity:.85}
-#scene-graph .sg-group.sg-film{background:rgba(168,85,247,.16);border-top-color:rgba(168,85,247,.4);color:#e9d5ff}
+#scene-graph .sg-group.sg-film{background:rgba(168,85,247,.16);border-top-color:rgba(168,85,247,.4);color:#e9d5ff;gap:6px}
 #scene-graph .sg-group.sg-film .sg-gcount{background:rgba(168,85,247,.28);color:#f3e8ff}
-#scene-graph .sg-filmrow{border-color:rgba(168,85,247,.3);color:#d8c7ee}
-#scene-graph .sg-filmrow:hover{border-color:#a855f7;color:#fff}
+#scene-graph .sg-group.sg-filmmaster{background:rgba(168,85,247,.26)}
+/* rich film rows: name + editable ready-made prompt + GEN */
+#scene-graph .sg-filmrow{display:flex;align-items:center;gap:6px;padding:7px 8px;border:1px solid rgba(168,85,247,.28);border-radius:9px;margin-bottom:5px;background:rgba(168,85,247,.06);cursor:default;white-space:normal}
+#scene-graph .sg-filmrow.built{border-color:rgba(0,255,136,.5);background:rgba(0,255,136,.07)}
+#scene-graph .sg-fl{flex:1;min-width:0;cursor:pointer;overflow:hidden}
+#scene-graph .sg-fnm{display:block;font-size:10.5px;font-weight:800;letter-spacing:.03em;color:#e9d9ff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#scene-graph .sg-filmrow.built .sg-fnm{color:#a7f3cf}
+#scene-graph .sg-fpr{display:block;font-size:9px;font-weight:500;color:#9a8fb5;line-height:1.25;max-height:24px;overflow:hidden}
+#scene-graph .sg-fl:hover .sg-fnm{color:#fff}
+#scene-graph .sg-fbtn{flex:0 0 auto;background:rgba(25,230,200,.16);border:1px solid rgba(25,230,200,.45);color:#19e6c8;border-radius:7px;font:800 9px/1 inherit;letter-spacing:.05em;padding:6px 7px;cursor:pointer;-webkit-tap-highlight-color:transparent}
+#scene-graph .sg-fbtn:active{transform:scale(.92)}
+#scene-graph .sg-fbtn.ghost{background:none;border-color:rgba(255,255,255,.18);color:#9aa}
+#scene-graph .sg-fbtn.done{background:rgba(0,255,136,.14);border-color:rgba(0,255,136,.45);color:#6ef7b3}
+#scene-graph .sg-fbtn.play{background:rgba(168,85,247,.2);border-color:#a855f7;color:#e9d5ff}
 .sg-header { font-size: 11px; font-weight: 700; letter-spacing: 0.2em; padding: 10px; border-bottom: 1px solid #444; color: #00ff88; background: #000; }
 .sg-list { flex: 1; overflow-y: auto; padding: 8px; display: flex; flex-direction: column; gap: 4px; }
 .sg-item { font-size: 9px; letter-spacing: 0.1em; padding: 8px; border: 1px solid #444; cursor: pointer; color: #ccc; transition: all 0.2s; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: flex; justify-content: space-between; align-items: center;}
@@ -8327,49 +8346,118 @@ function repromptGroup(gid){
     } catch(_){}
 }
 window.__repromptGroup = repromptGroup;
-// ── FILM SECTIONS — the production board, folded INTO the scene graph ────────
-// When a film is composed, its cast / set / shots appear as native scene-graph
-// sections. Each node LINKS INTO the real builder: a cast node puts you in that
-// body and opens the HELLO ritual; a set node selects the piece and re-prompts
-// it in the WORLD builder; a shot node jumps the camera. No parallel modal —
-// the scene graph you already have becomes film-aware.
+// ── FILM in the scene graph — a PLAN you generate deliberately ───────────────
+// Composing plans the film here; nothing enters the world until you GENERATE it
+// (one asset, a section, or the whole film). Every asset carries an editable,
+// ready-made prompt — the exact text that regenerates it. Each node links into
+// the real builder. No parallel modal; no crowding the scene unasked.
+const __filmBuilt = new Set();          // asset keys already generated
+const FNCAM = { perception:'wide', action:'behind', affection:'close', opsign:'aerial', sonsign:'low', crystal:'wide', recollection:'wide' };
+const __RIG_SYS = 'You are a master vehicle artist for THUNDER RIGS. Reply with ONLY one JavaScript function, no fences, no prose:\nfunction build(g, VG, THREE){ ... }\nUse VG: box(w,h,d,m) cyl(r1,r2,h,m,seg) cone sphere ico torus + wheels knobbyWheel(r,w,hub)/slickWheel + materials paint(hex,{rough,metal}) matte metalMat goldMat emiss(hex,i) makeGlass + headlight(hex) glow(hex) contactShadow(w,d). Helpers INSIDE build. A drivable car-scale rig (~4x2x2 units), wheels grounded, under 200 meshes.';
+const __FORT_SYS = 'You are a fortification builder for THUNDER RIGS. Reply with ONLY one JavaScript function, no fences, no prose:\nfunction build(w, WG, THREE){ ... return w; }\nOne focal structure near the origin: WG.box/cyl/cone/sphere/torus + WG.flat(hex,{rough,metal})/WG.lit(hex,i); WG.put(mesh,x,y,z,ry) places, WG.solid(mesh,w,h,d) makes it collide; under 60 meshes; all parts within 12 units of origin; WG.rand(seed) for randomness.';
+async function __forgeAssetCode(kind, prompt){
+    let hasKey = false; try { hasKey = aiLocalAvailable(); } catch(_){}
+    if (hasKey && window.FORGE){
+        const sys = (kind === 'cast' ? __RIG_SYS : __FORT_SYS) + '\nDesign for: "' + String(prompt).slice(0,160) + '"';
+        try {
+            const reply = await Promise.race([ requestAIText(String(prompt), sys, null, 4000, { task: 'film-' + kind }),
+                new Promise((_, r) => setTimeout(() => r(new Error('timeout')), 45000)) ]);
+            const src = FORGE.sanitize(String(reply || '')); const scan = FORGE.jsScan(src);
+            if (/function\s+build\s*\(/.test(src) && scan.brace === 0 && scan.paren === 0 && src.length > 60) return { src, real: true };
+        } catch(e){ console.warn('[film forge]', e && e.message); }
+    }
+    const lib = kind === 'cast' ? window.GOLDEN : window.GOLDEN_DRAFTS;
+    try { const g = lib && lib.pick(prompt); if (g && g.entry && g.entry.code) return { src: g.entry.code, real: false }; } catch(_){}
+    return null;
+}
+const __setAnchor = mi => { const a = mi * 2.1; return { x: Math.round(Math.cos(a) * 26), z: Math.round(Math.sin(a) * 26) }; };
+async function __genCast(i){
+    const bp = TWIN.lastBlueprint; if (!bp || !bp.cast[i]) return; const c = bp.cast[i];
+    notify('⚒ CASTING ' + c.name.toUpperCase() + '…');
+    try { window.BUS && BUS.say('cast a ' + (c.desc || 'keeper') + ' named ' + c.name, 'film'); } catch(_){}
+    const forged = await __forgeAssetCode('cast', c.desc || '');
+    if (forged && forged.real){ try { const g = window.__buildVehicleFromCode(forged.src);
+        if (g){ const b = (localBots || []).find(x => x && x.name.toLowerCase().includes(c.name.toLowerCase()));
+            if (b){ const keep = b.car.position.clone(); scene.remove(b.car); b.spec = Object.assign({}, b.spec, { vcode: forged.src }); b.car = buildCar(b.spec); b.car.position.copy(keep); scene.add(b.car); } } } catch(e){ console.warn('[gencast]', e); } }
+    __filmBuilt.add('cast:' + c.name); notify('✓ ' + c.name.toUpperCase() + (forged && forged.real ? ' — MODEL-FORGED' : ' — stand-in'));
+    try { updateSceneGraph(); } catch(_){}
+}
+async function __genSet(mi, form){
+    const bp = TWIN.lastBlueprint; if (!bp || !bp.motifs[mi]) return; const m = bp.motifs[mi];
+    const prompt = m[form] || m.name, anchor = __setAnchor(mi), id = 'motif-' + mi + '-' + form;
+    notify('⚒ BUILDING "' + prompt.slice(0,30) + '"…');
+    const forged = await __forgeAssetCode('set', prompt);
+    if (forged){ const r = window.__applyForgeFort(forged.src, anchor, id);
+        if (r && r.ok){ try { window.__broadcastFort(id, forged.src, anchor); } catch(_){} __filmBuilt.add('set:' + mi + ':' + form); notify('✓ "' + prompt.slice(0,30) + '"' + (forged.real ? ' — MODEL' : ' — stand-in')); }
+        else notify('✗ forge rejected'); }
+    try { updateSceneGraph(); } catch(_){}
+}
+async function __genSection(kind){
+    const bp = TWIN.lastBlueprint; if (!bp) return;
+    if (kind === 'cast'){ for (let i = 0; i < bp.cast.length; i++) await __genCast(i); }
+    else if (kind === 'set'){ for (let mi = 0; mi < bp.motifs.length; mi++) for (const f of ['past','present','future']) await __genSet(mi, f); }
+}
+window.__filmGen = { cast: __genCast, set: __genSet, section: __genSection, built: __filmBuilt };
+// edit an asset's ready-made prompt in place (mutates the blueprint)
+function __editPrompt(getset){
+    const cur = getset();
+    const next = window.prompt('Ready-made prompt for this asset (edit, then GENERATE):', cur);
+    if (next != null && next.trim()){ getset(next.trim()); try { updateSceneGraph(); } catch(_){} }
+}
 function __filmSections(list){
     const bp = window.TWIN && TWIN.lastBlueprint; if (!bp) return;
-    const head = (txt, hint) => { const h = document.createElement('div'); h.className = 'sg-group sg-film';
-        h.innerHTML = '<span class="sg-gname">' + txt + '</span><span class="sg-gcount">' + hint + '</span>'; list.appendChild(h); return h; };
-    const row = (name, tag, onClick) => { const r = document.createElement('div'); r.className = 'sg-item sg-child sg-filmrow';
-        r.innerHTML = '<span>' + name + '</span><span class="sg-type">' + tag + '</span>';
-        r.addEventListener('click', onClick); list.appendChild(r); return r; };
     const findFort = id => { let hit = null; try { scene.traverse(o => { if (!hit && o.userData && o.userData.__fortId === id) hit = o; }); } catch(_){} return hit; };
     const findBot = nm => (typeof localBots !== 'undefined') && localBots.find(b => b && !b.destroyed && b.name.toLowerCase().includes(String(nm).toLowerCase()));
-    // CAST — tap to inhabit + edit in HELLO
-    if (bp.cast && bp.cast.length){ head('🎭 CAST', 'edit in HELLO');
-        bp.cast.forEach(c => row(c.name.toUpperCase(), findBot(c.name) ? 'RIG' : 'STANDIN', () => {
-            try { window.BUS && BUS.say('play as ' + c.name, 'graph'); } catch(_){}
-            if (window.__openRitual) window.__openRitual();
-            notify('EDITING ' + c.name.toUpperCase() + ' — tap parts, say a change, done');
-        })); }
-    // SET — tap to frame + re-prompt in WORLD
-    if (bp.motifs && bp.motifs.length){ head('🏛️ THE SET', 'edit in WORLD');
+    // master strip — build everything, or play the whole film
+    const master = document.createElement('div'); master.className = 'sg-group sg-film sg-filmmaster';
+    master.innerHTML = '<span class="sg-gname">🎬 ' + String(bp.title || 'FILM').slice(0,20) + '</span>';
+    const bAll = document.createElement('button'); bAll.className = 'sg-fbtn'; bAll.textContent = 'BUILD ALL';
+    bAll.addEventListener('click', async e => { e.stopPropagation(); await __genSection('cast'); await __genSection('set'); notify('FILM BUILT'); });
+    const bPlay = document.createElement('button'); bPlay.className = 'sg-fbtn play'; bPlay.textContent = '▶ PERFORM';
+    bPlay.addEventListener('click', e => { e.stopPropagation(); try { window.TWIN && TWIN.performFilm(); } catch(_){} });
+    master.append(bAll, bPlay); list.appendChild(master);
+    // section header with a GEN-ALL
+    const head = (txt, hint, kind) => { const h = document.createElement('div'); h.className = 'sg-group sg-film';
+        h.innerHTML = '<span class="sg-gname">' + txt + '</span><span class="sg-gcount">' + hint + '</span>';
+        if (kind){ const g = document.createElement('button'); g.className = 'sg-fbtn'; g.textContent = 'GEN ALL';
+            g.addEventListener('click', e => { e.stopPropagation(); __genSection(kind); }); h.appendChild(g); }
+        list.appendChild(h); return h; };
+    // a rich film row: label + editable prompt sub + GEN + open-in-builder
+    const frow = (name, prompt, built, onGen, onOpen, onEdit) => {
+        const r = document.createElement('div'); r.className = 'sg-item sg-child sg-filmrow' + (built ? ' built' : '');
+        const lab = document.createElement('div'); lab.className = 'sg-fl';
+        lab.innerHTML = '<span class="sg-fnm">' + name + '</span><span class="sg-fpr">' + (prompt || '') + '</span>';
+        lab.addEventListener('click', onOpen); r.appendChild(lab);
+        if (onEdit){ const ed = document.createElement('button'); ed.className = 'sg-fbtn ghost'; ed.textContent = '✎'; ed.title = 'edit prompt';
+            ed.addEventListener('click', e => { e.stopPropagation(); onEdit(); }); r.appendChild(ed); }
+        if (onGen){ const g = document.createElement('button'); g.className = 'sg-fbtn' + (built ? ' done' : '');
+            g.textContent = built ? '↻' : 'GEN'; g.title = built ? 'regenerate' : 'generate into the world';
+            g.addEventListener('click', e => { e.stopPropagation(); onGen(); }); r.appendChild(g); }
+        list.appendChild(r); return r;
+    };
+    // CAST
+    if (bp.cast && bp.cast.length){ head('🎭 CAST', 'generate · edit in HELLO', 'cast');
+        bp.cast.forEach((c, i) => frow(c.name.toUpperCase(), c.desc, __filmBuilt.has('cast:' + c.name) || !!findBot(c.name),
+            () => __genCast(i),
+            () => { try { window.BUS && BUS.say('play as ' + c.name, 'graph'); } catch(_){} if (window.__openRitual) window.__openRitual(); notify('EDITING ' + c.name.toUpperCase() + ' in HELLO'); },
+            () => __editPrompt(v => { if (v != null) c.desc = v; return c.desc; }))); }
+    // SET
+    if (bp.motifs && bp.motifs.length){ head('🏛️ THE SET', 'generate · edit in WORLD', 'set');
         bp.motifs.forEach((m, mi) => ['past','present','future'].forEach(form => {
-            const id = 'motif-' + mi + '-' + form;
-            row((m.name + ' · ' + form).toUpperCase(), findFort(id) ? 'BUILT' : 'PENDING', () => {
-                const o = findFort(id);
-                if (o){ try { selectObject(o); } catch(_){}
-                    try { camMode = 'FREE'; const c = new THREE.Box3().setFromObject(o).getCenter(new THREE.Vector3());
-                        camera.position.copy(c).add(new THREE.Vector3(1,0.6,1).normalize().multiplyScalar(28)); orbit.target.copy(c); } catch(_){}
-                }
-                try { const tab = document.getElementById('r-tab-world'); if (tab && window.__openRitual){ window.__openRitual(); tab.click(); const inp = document.getElementById('ritual-input'); if (inp){ inp.value = m[form] || m.name; inp.focus(); } } } catch(_){}
-                notify('EDIT SET IN WORLD: "' + (m[form] || m.name) + '" — send to regenerate');
-            });
+            const id = 'motif-' + mi + '-' + form, built = __filmBuilt.has('set:' + mi + ':' + form) || !!findFort(id);
+            frow((m.name + ' · ' + form).toUpperCase(), m[form] || m.name, built,
+                () => __genSet(mi, form),
+                () => { const o = findFort(id);
+                    if (o){ try { selectObject(o); } catch(_){} try { camMode = 'FREE'; const c = new THREE.Box3().setFromObject(o).getCenter(new THREE.Vector3()); camera.position.copy(c).add(new THREE.Vector3(1,0.6,1).normalize().multiplyScalar(28)); orbit.target.copy(c); } catch(_){}
+                        notify('FRAMED ' + (m[form] || m.name).slice(0,24) + ' — edit in WORLD or ↻ to rebuild'); }
+                    else notify('not built yet — GEN this piece first'); },
+                () => __editPrompt(v => { if (v != null) m[form] = v; return m[form]; }));
         })); }
-    // SHOTS — tap to jump the camera
-    if (bp.beats && bp.beats.length){ head('🎬 SHOTS', 'jump camera');
-        const FNC = { perception:'wide', action:'behind', affection:'close', opsign:'aerial', sonsign:'low', crystal:'wide', recollection:'wide' };
-        bp.beats.forEach((b, i) => { const cam = FNC[b.fn] || 'wide'; const subj = (b.subject || (bp.cast && bp.cast[0] && bp.cast[0].name) || 'me');
-            row('SHOT ' + (i+1) + ' · ' + cam.toUpperCase(), b.fn.slice(0,4).toUpperCase(), () => {
-                try { window.BUS && BUS.say('camera ' + cam + ' on ' + subj, 'graph'); } catch(_){}
-            }); }); }
+    // SHOTS
+    if (bp.beats && bp.beats.length){ head('🎬 SHOTS', 'jump the camera');
+        bp.beats.forEach((b, i) => { const cam = FNCAM[b.fn] || 'wide'; const subj = (b.subject || (bp.cast && bp.cast[0] && bp.cast[0].name) || 'me');
+            frow('SHOT ' + (i+1) + ' · ' + cam.toUpperCase(), '[' + b.fn + '] on ' + subj, false, null,
+                () => { try { window.BUS && BUS.say('camera ' + cam + ' on ' + subj, 'graph'); } catch(_){} }, null); }); }
 }
 function updateSceneGraph() {
     const list = document.getElementById('sg-list');
@@ -15601,7 +15689,16 @@ function runCommand(text){
         }
         // THE FILM in the scene graph: cast / set / shots, each a handle into the builder
         if(/\b(open|show|see)\b.*\b(board|cast|scene graph|film)\b|\bproduction board\b/.test(t)){
-            if (window.__openFilmGraph){ window.__openFilmGraph(); return 'scene graph — CAST edits in HELLO · SET edits in WORLD · SHOTS jump the camera'; }
+            if (window.__openFilmGraph){ window.__openFilmGraph(); return 'scene graph — GEN each asset · CAST edits in HELLO · SET in WORLD · SHOTS jump'; }
+            return 'no film yet — compose one first';
+        }
+        // BUILD / PERFORM the whole film on demand (deferred generation)
+        if(/\b(build|generate|make)\b.*\b(whole |the )?film\b|\bbuild it all\b/.test(t)){
+            if (window.__filmGen){ __filmGen.section('cast').then(()=>__filmGen.section('set')).then(()=>{ try{window.__openFilmGraph&&window.__openFilmGraph();}catch(_){} }); return 'building the whole film — cast then set'; }
+            return 'no film yet — compose one first';
+        }
+        if(/\bperform\b.*\bfilm\b|\bplay the (whole )?film\b|\brun the film\b/.test(t)){
+            if (window.TWIN && TWIN.performFilm){ TWIN.performFilm(); return 'performing the whole film on the clock'; }
             return 'no film yet — compose one first';
         }
         // SHOW THE SCRIPT: read the composed blueprint back (also logged to AI·LOG)
@@ -15926,6 +16023,7 @@ const TWIN = (() => {
     let lastOp = null;         // the last loaded operator-twin — the source "transcribe the twin" reads
     let lastTranscript = null; // the last performed/transcribed thunder-twin — "save the twin" writes it
     let lastBlueprint = null;  // the last CINEOSIS blueprint — "show the script" reads it back
+    let lastCompiled = null;   // the compiled twin, held for on-demand "perform the whole film"
     function parseOperator(d) {
         const byId = {}; (d.nodes || []).forEach(n => { byId[n.id] = n; });
         const frames = (d.activePath || []).map(id => (byId[id] && byId[id].commands) || []);
@@ -16498,10 +16596,15 @@ const TWIN = (() => {
         lastBlueprint = bp;   // THE SCRIPT — "show the script" reads it back
         try { if (window.AICON) { AICON.log('🎬 ' + bp.title + ' · engine: ' + (bp.engine || '—'), 'ok');
             (bp.beats || []).forEach((b, i) => AICON.log('  beat ' + (i + 1) + ' [' + b.fn + '/' + (b.layer || '') + '] ' + (b.title || '') + ' — ' + (b.action || '') + ' · ♪ ' + (b.sound || ''), 'ok')); } } catch(_){}
-        const tw = compileFilm(bp);
-        notify('🎬 ' + (bp.title || 'FILM') + ' — ' + tw.beats.length + ' beats' + (bp === golden ? ' (golden poet)' : ' (model composed)') + ' — "show the script" to read it');
-        return performTwin(tw);
+        // DEFERRED: composing plans the film into the scene graph but builds
+        // NOTHING yet — you generate each asset on demand (whole / section /
+        // one) so the scene never crowds with things you didn't ask for.
+        lastCompiled = compileFilm(bp);
+        try { if ((document.body.classList.contains('in-ritual') || document.body.classList.contains('pre-enter')) && typeof window.releaseToSneak === 'function') window.releaseToSneak(); } catch(_){}
+        notify('🎬 ' + (bp.title || 'FILM') + ' — ' + (bp.beats || []).length + ' beats planned' + (bp === golden ? ' (golden poet)' : ' (model composed)') + ' — GENERATE from the scene graph');
+        return { ok: true, planned: (bp.beats || []).length, deferred: true };
     }
+    function performFilm(){ if (!lastCompiled) return { ok: false }; return performTwin(lastCompiled); }
     async function performAI(doc, onBeat) {
         notify('AI BAKE — FORGING EVERY BEAT…');
         const s = await bakeAI(doc, onBeat);
@@ -16517,7 +16620,7 @@ const TWIN = (() => {
             return true;
         } catch (e) { console.warn('[twin save]', e); return false; }
     }
-    return { showFilm, stop, performTwin, performAI, stopPerf, bake, bakeAI, analyze, transcribe, transcribeAI, saveTranscript, elements, compileFort, compileRig, sculpt, goldenFilm, compileFilm, composeFilm, tick: tickAll,
+    return { showFilm, stop, performTwin, performAI, performFilm, stopPerf, bake, bakeAI, analyze, transcribe, transcribeAI, saveTranscript, elements, compileFort, compileRig, sculpt, goldenFilm, compileFilm, composeFilm, tick: tickAll,
         get playing() { return !!show || !!perf; }, get frame() { return show ? show.idx : -1; },
         get beat() { return perf ? perf.fired.size : -1; }, get lastFilm() { return lastOp; }, get lastTranscript() { return lastTranscript; }, get lastBlueprint() { return lastBlueprint; } };
 })();
