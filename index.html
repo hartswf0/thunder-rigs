@@ -7438,10 +7438,12 @@ function pushWorldToNewPeers() {
 let applyingRemoteFort = false;
 const knownForts = {};   // id -> {code, anchor} — mirror registry for late-join re-push
 function broadcastFort(id, code, anchor) {
-    if (!currentRoom || !currentPeerId) { if (window.__SYNC_TRACE) __syncLog('FORT not shared — not in a room', '#ff4444'); return; }
     if (applyingRemoteFort) return;   // echo guard (silent)
     if (!id || !code || typeof code !== 'string') { if (window.__SYNC_TRACE) __syncLog('FORT not shared — no code on commit', '#ff4444'); return; }
+    // register FIRST, room or not: solo-built forts must serialize into
+    // cartridges and re-push to late joiners once a room exists.
     knownForts[id] = { code, anchor: anchor || { x:0, z:0 } };
+    if (!currentRoom || !currentPeerId) return;   // solo: registered, nothing to send yet
     roomSend({ type: 'fort', id, code, anchor: anchor || { x:0, z:0 }, t: Date.now() });
     if (window.__SYNC_TRACE) __syncLog('⇄ FORT SENT → ' + currentRoom + ' (' + code.length + 'c)', '#19e6c8');
 }
@@ -10893,10 +10895,117 @@ updateAIStatus();
 renderBotList(true);
 
 // --- FILE SYSTEM (SAVE/LOAD/EXPORT) ---
+// ── CART: the cartridge loader — session ⇄ .trig.json ────────────────────────
+// serialize(): the current session as a thunder-rigs.cartridge/v1 document
+// (see cart/CARTRIDGE.md — code is the source of truth, certs ride along).
+// load(): the admission pipeline — atmosphere → world code (re-forged AND
+// re-certified via __applyForgeWorld → WORLDCERT) → hand-placed rows →
+// entities → cine. Legacy {name, objects} saves still load unchanged.
+const CART = (() => {
+    const HEX = c => { try { if (typeof c === 'string' && /^#[0-9a-fA-F]{6}$/.test(c)) return c.toLowerCase();
+        const n = (typeof c === 'number') ? c : parseInt(String(c).replace('#',''), 16);
+        return '#' + (n >>> 0 & 0xffffff).toString(16).padStart(6, '0'); } catch(_) { return '#000000'; } };
+    const kebab = s => (String(s || 'untitled').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'untitled').slice(0, 63);
+    const clampA = v => Math.max(-85, Math.min(85, +(+v).toFixed(1) || 0));
+    function atmosphere() {
+        const a = window.__lastAtmoSpec;
+        if (a && a.sky && a.fog) return { sky: HEX(a.sky), fog: HEX(a.fog), ground: HEX(a.ground != null ? a.ground : a.fog) };
+        const p = (window.__ritualBgProbe && window.__ritualBgProbe()) || {};
+        return { sky: HEX(p.bg || '#0a0e12'), fog: HEX(p.fog || '#0a1a2a'), ground: HEX(p.floor || '#10161b') };
+    }
+    function serialize() {
+        const name = (document.getElementById('scene-name')?.value || 'THUNDER SCENE').slice(0, 80);
+        const doc = {
+            format: 'thunder-rigs.cartridge/v1',
+            meta: { id: kebab(name), name, author: (playerName() || '').slice(0, 80), created: new Date().toISOString(), engine: { min: '1.0.0' } },
+            world: { atmosphere: atmosphere() },
+            entities: [],
+            rules: { mode: 'free-build' },
+            net: { world: 'latest-wins', forts: 'accumulate' },
+        };
+        const w = window.__wgLastWorld;
+        if (w && w.ok && w.code && w.code.length <= 32000) {
+            doc.world.code = w.code;
+            doc.world.cert = {};
+            if (w.cert) doc.world.cert.forge = { meshes: w.cert.meshes|0, tris: w.cert.tris|0, ms: +w.cert.ms || 0, hash: w.cert.hash };
+            const wc = window.__lastWorldCert;
+            if (wc && wc.cert) doc.world.cert.world = { hash: wc.cert.hash, violations: wc.cert.violations|0, drivable: wc.cert.drivable, contrast: wc.cert.contrast };
+            if (!doc.world.cert.forge && !doc.world.cert.world) delete doc.world.cert;
+        }
+        if (window.__lastWorldPrompt) doc.world.prompt = String(window.__lastWorldPrompt).slice(0, 400);
+        const rows = getSerializedState().slice(0, 400);
+        if (rows.length) doc.world.objects = rows;
+        if (!doc.world.code && !doc.world.objects) doc.world.objects = [];   // a bare course is still a cartridge
+        // the player's rig, where they stand
+        const rig = {}; const tx = rigTransmitSpec(myLoadout);
+        rig.spec = { color: tx.color, accent: tx.accent, body: tx.body, spoiler: tx.spoiler, theme: tx.theme, topper: tx.topper, front: tx.front, side: tx.side, rear: tx.rear, face: tx.face };
+        if (tx.vcode) rig.vcode = tx.vcode;
+        if (tx.rp) rig.rp = tx.rp;
+        doc.entities.push({ kind: 'vehicle', id: 'p1', at: { x: clampA(P.pos.x), z: clampA(P.pos.z) }, rig });
+        // every shared fort, by its generation code (accumulate semantics)
+        try { Object.keys(knownForts || {}).forEach(id => { const f = knownForts[id];
+            if (f && f.code && doc.entities.length < 64) doc.entities.push({ kind: 'fort', id: kebab(id), anchor: { x: +(+f.anchor.x).toFixed(1) || 0, z: +(+f.anchor.z).toFixed(1) || 0 }, code: f.code }); }); } catch(_){}
+        // bots: body + position (minds are prompts the bus will own; not yet serialized)
+        try { (localBots || []).forEach((b, i) => { if (doc.entities.length >= 64 || !b || !b.car) return;
+            doc.entities.push({ kind: 'bot', id: kebab((b.name || 'bot-' + i)), at: { x: clampA(b.car.position.x), z: clampA(b.car.position.z) }, rig: { spec: b.spec || {} } }); }); } catch(_){}
+        // the reel (schema shape: {shots}; CINE.serialize wraps as {v, shots})
+        try { const c = window.CINE && CINE.serialize(); if (c && Array.isArray(c.shots) && c.shots.length) doc.cine = { shots: c.shots.slice(0, 24) }; } catch(_){}
+        return doc;
+    }
+    function structuralErrors(doc) {
+        const errs = [];
+        if (!doc || doc.format !== 'thunder-rigs.cartridge/v1') errs.push('format must be thunder-rigs.cartridge/v1');
+        else {
+            if (!doc.meta || !doc.meta.id || !doc.meta.name) errs.push('meta.id and meta.name are required');
+            const w = doc.world || {};
+            if (!w.atmosphere || ![w.atmosphere.sky, w.atmosphere.fog, w.atmosphere.ground].every(c => /^#[0-9a-fA-F]{6}$/.test(c || ''))) errs.push('world.atmosphere needs #hex sky/fog/ground');
+            if (!w.code && !Array.isArray(w.objects)) errs.push('world needs code or objects');
+            if (w.code && w.code.length > 32000) errs.push('world.code over the 32k budget');
+            if (Array.isArray(doc.entities) && doc.entities.length > 64) errs.push('over 64 entities');
+            if (doc.cine && Array.isArray(doc.cine.shots) && doc.cine.shots.length > 24) errs.push('over 24 cine shots');
+        }
+        return errs;
+    }
+    function load(doc) {
+        const errs = structuralErrors(doc);
+        if (errs.length) { notify('CARTRIDGE REJECTED — ' + errs[0].toUpperCase()); if (window.AICON) AICON.log('CART reject · ' + errs.join(' · '), 'err'); return { ok: false, errs }; }
+        saveState();
+        const did = [];
+        if (doc.meta.name) { const el = document.getElementById('scene-name'); if (el) el.value = doc.meta.name; }
+        try { if (window.__ritualPalette) window.__ritualPalette(doc.world.atmosphere); } catch(_){}
+        if (doc.world.code && typeof window.__applyForgeWorld === 'function') {
+            const r = window.__applyForgeWorld(doc.world.code);   // full admission: FORGE cost cert → WORLDCERT legality → repairs → broadcast
+            if (r && r.ok) did.push('world ' + (r.cert && r.cert.meshes) + 'm'); else notify('WORLD CODE REJECTED — ' + ((r && r.err) || 'forge failed').slice(0, 60));
+        }
+        if (Array.isArray(doc.world.objects) && doc.world.objects.length) { applyState(doc.world.objects); did.push(doc.world.objects.length + ' objects'); }
+        let skipped = 0;
+        (doc.entities || []).forEach(e => {
+            try {
+                if (e.kind === 'vehicle' && e.rig) {
+                    applyLoadout(Object.assign({}, myLoadout, e.rig.spec || {}, e.rig.vcode ? { vcode: e.rig.vcode } : {}, e.rig.rp ? { rp: e.rig.rp } : {}));
+                    if (e.at) { P.pos.set(e.at.x || 0, REST_Y, e.at.z || 0); P.vel.set(0, 0, 0); }
+                    did.push('rig');
+                } else if (e.kind === 'fort' && e.code && typeof window.__applyForgeFort === 'function') {
+                    const fr = window.__applyForgeFort(e.code, e.anchor || { x: 0, z: 0 }, e.id);
+                    if (fr && fr.ok) { did.push('fort:' + e.id); try { if (typeof window.__broadcastFort === 'function') window.__broadcastFort(e.id, e.code, e.anchor); } catch(_){} }
+                } else if (e.kind === 'fort' && Array.isArray(e.objects) && e.objects.length) {
+                    applyState(getSerializedState().concat(e.objects)); did.push('fort:' + e.id);
+                } else skipped++;   // bots/powerups/goals install with their game mode — the command bus's job
+            } catch (err) { console.warn('[cart] entity', e && e.id, err); skipped++; }
+        });
+        try { if (doc.cine && window.CINE && CINE.restore) { CINE.restore({ v: 1, shots: doc.cine.shots }); did.push('reel:' + doc.cine.shots.length); } } catch(_){}
+        notify('CARTRIDGE LOADED · ' + (did.slice(0, 4).join(' · ') || 'empty') + (skipped ? ' · ' + skipped + ' awaiting modes' : ''));
+        if (window.AICON) AICON.log('CART load · ' + did.join(' · ') + (skipped ? ' · skipped ' + skipped : ''), 'ok');
+        return { ok: true, did, skipped };
+    }
+    return { serialize, load, structuralErrors };
+})();
+window.__cart = CART;
 document.getElementById('btn-file-save').addEventListener('click', () => {
-    const data = { name: document.getElementById('scene-name').value, objects: getSerializedState(), cine: (window.CINE ? CINE.serialize() : undefined) };
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-    downloadFile(blob, document.getElementById('scene-name').value + '.json');
+    const doc = CART.serialize();
+    const blob = new Blob([JSON.stringify(doc, null, 2)], { type: 'application/json' });
+    downloadFile(blob, doc.meta.id + '.trig.json');
+    notify('CARTRIDGE SAVED · ' + doc.meta.id + '.trig.json');
 });
 document.getElementById('btn-file-load').addEventListener('click', () => document.getElementById('file-upload').click());
 document.getElementById('file-upload').addEventListener('change', (e) => {
@@ -10912,6 +11021,9 @@ document.getElementById('file-upload').addEventListener('change', (e) => {
     reader.onload = (event) => {
         try {
             const data = JSON.parse(event.target.result);
+            // CARTRIDGE: a .trig.json runs the full admission pipeline (CART.load);
+            // legacy {name, objects} level saves take the old path unchanged.
+            if (data && data.format === 'thunder-rigs.cartridge/v1') { CART.load(data); e.target.value = ''; return; }
             saveState(); // Save before overwriting
             if (data.name) document.getElementById('scene-name').value = data.name;
             applyState(data.objects || data);
