@@ -72,6 +72,26 @@ one budget discipline, many generators.
 plays a diegetic build animation during the call, so latency reads as
 "the machine is forging," not "it's stuck."
 
+**The admission layer — WorldCert** (`CERTIFY`, mirrored headless-testable in
+[`cert/certify.js`](cert/certify.js)). The forge cert measures *cost*
+(meshes/tris/ms); a second gate measures **legality** after build, before commit:
+
+- **bounds** — full-AABB test against the arena (`WGKIT` already demotes solids
+  whose *center* leaves the map, but a bridge with an in-bounds center and a
+  90-unit body escaping the rim only an extent check catches) → `clamp`/`cull`;
+- **spawnClear** — a reserved cylinder around every spawn; blockers are
+  physically `offset` out of it, never built on top of the car;
+- **drivable** — raycast height grid → slope/corridor/flood-fill connectivity
+  stats; failures are *not* mechanically fixable → `reprompt` hints;
+- **contrast** — luminance gap between fog/ground/materials → `recolor`/`refog`
+  toward the doctrine palette.
+
+Every violation carries a **repair verdict** (`clamp | cull | offset |
+relocateSpawn | recolor | refog | reprompt`): mechanical ones are applied
+silently at commit; only topology problems go back to the model as
+`promptFeedback`. Reject-and-repair beats render-and-hope — the judge pattern
+applied to geometry.
+
 The payoff: arbitrary, expressive geometry from language, with the blast radius
 of a pure function.
 
