@@ -62,7 +62,9 @@ body.menu-open #play-fab{display:none}
 :root{ --lane-top:max(12px,env(safe-area-inset-top)); --lane-h:46px;
   --z-hud:40; --z-lane:46; --z-line:80; --z-modal:200; --z-ritual:300; --z-top:340; }
 /* status slot: score HUDs own top-center, aligned to the lane */
-#ctf-scoreboard,#golf-hud{ top:var(--lane-top)!important; z-index:var(--z-hud)!important; }
+#ctf-scoreboard,#golf-hud,#mode-hud{ top:var(--lane-top)!important; z-index:var(--z-hud)!important; }
+/* custom-mechanic status (game.hud) — a lane tenant like the other scores */
+#mode-hud{ position:absolute; left:50%; transform:translateX(-50%); display:none; align-items:center; background:#000c; border:1px solid #a855f7; backdrop-filter:blur(8px); padding:8px 16px; border-radius:6px; font-weight:800; letter-spacing:.08em; font-size:12px; color:#e9d5ff; }
 /* PLAY sits in the status slot while idle; the moment a game HUD is live
    (body.hud-live, set by the shell observer) it collapses to a chip beside the
    menu — the score's turn to own center. */
@@ -1741,6 +1743,7 @@ body.in-ritual #golf-hud,body:not(.play-mode) #golf-hud{display:none!important}
 <div id="paris-lost">SIGNAL LOST</div>
 <div id="paris-sheet"></div>
 <div id="paris-full"></div>
+<div id="mode-hud"></div>
 <div id="golf-hud">
   <span class="gh-ico">⛳</span><span class="gh-lab">GOLF</span>
   <span class="gh-stat">STROKES<b id="golf-strokes">0</b></span>
@@ -1803,8 +1806,8 @@ body.cine-rolling #cmd-fab, body.cine-rolling #ball-tracker, body.cine-rolling #
 <div id="cmd-modal">
   <div class="cmd-card std-shell">
     <div class="cmd-title">DIRECT THE GAME</div>
-    <div class="cmd-sub">Type what should happen — spawn bots, place goals &amp; targets.</div>
-    <div class="std-line" data-std-surface="say" style="display:none!important;">
+    <div class="cmd-sub">Type what should happen — or invent a whole new game: <em>“make a race through glowing rings”</em>.</div>
+    <div class="std-line" data-std-surface="say">
       <span class="std-context std-say">SAY</span>
       <input id="cmd-input" autocomplete="off" spellcheck="false" placeholder="spawn bots · place a goal · direct the match">
       <button id="cmd-send" class="std-send" type="button" aria-label="send game direction"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 11.5 20 4l-5.4 16-3.2-6.1L4 11.5Z"/><path d="m11.4 13.9 4.9-5.2"/></svg></button>
@@ -10955,6 +10958,8 @@ const CART = (() => {
             doc.entities.push({ kind: 'powerup', id: kebab(p.id), at: { x: clampA(p.pos.x), z: clampA(p.pos.z) }, effect: p.effect, respawn: Math.max(0, Math.min(600, p.respawn || 0)) }); }); } catch(_){}
         // cartridge chips survive save/load cycles
         try { if (CART._chips && CART._chips.length) doc.ui = { chips: CART._chips }; } catch(_){}
+        // the installed custom mechanic travels as rules.mode:'custom' (schema modeCode)
+        try { const m = window.__activeMechanic; if (m && m.code && m.code.length <= 20000) doc.rules = { mode: 'custom', code: m.code }; } catch(_){}
         // the reel (schema shape: {shots}; CINE.serialize wraps as {v, shots})
         try { const c = window.CINE && CINE.serialize(); if (c && Array.isArray(c.shots) && c.shots.length) doc.cine = { shots: c.shots.slice(0, 24) }; } catch(_){}
         return doc;
@@ -11012,6 +11017,11 @@ const CART = (() => {
         });
         try { if (doc.ui && Array.isArray(doc.ui.chips) && window.BUS) { BUS.chips(doc.ui.chips); CART._chips = doc.ui.chips; did.push('chips:' + doc.ui.chips.length); } } catch(_){}
         try { if (doc.cine && window.CINE && CINE.restore) { CINE.restore({ v: 1, shots: doc.cine.shots }); did.push('reel:' + doc.cine.shots.length); } } catch(_){}
+        // a carried mechanic installs through the same forge sandbox as everything else
+        try { if (doc.rules && doc.rules.mode === 'custom' && doc.rules.code && window.MODES) {
+            const mr = MODES.install(doc.rules.code, doc.meta.id);
+            if (mr.ok) did.push('mechanic:' + mr.name); else notify('CARTRIDGE MECHANIC REJECTED — ' + String(mr.err).slice(0, 50).toUpperCase());
+        } } catch(_){}
         notify('CARTRIDGE LOADED · ' + (did.slice(0, 4).join(' · ') || 'empty') + (skipped ? ' · ' + skipped + ' awaiting modes' : ''));
         if (window.AICON) AICON.log('CART load · ' + did.join(' · ') + (skipped ? ' · skipped ' + skipped : ''), 'ok');
         return { ok: true, did, skipped };
@@ -12586,7 +12596,7 @@ function markCoachDone(id){ const el = document.getElementById(id); if (el){ el.
     // shell flags body.hud-live and PLAY collapses to a chip beside the menu.
     setInterval(() => {
         try {
-            const live = ['ctf-scoreboard','golf-hud'].some(id => { const el = document.getElementById(id); return el && getComputedStyle(el).display !== 'none'; });
+            const live = ['ctf-scoreboard','golf-hud','mode-hud'].some(id => { const el = document.getElementById(id); return el && getComputedStyle(el).display !== 'none'; });
             body.classList.toggle('hud-live', live);
         } catch(_){}
     }, 500);
@@ -15445,6 +15455,14 @@ function runCommand(text){
             if(/power/.test(t)){ const n=POWERUPS.length; clearPowerups(); return 'cleared '+n+' powerups'; }
             if(/goal|cup|target/.test(t)){ const n=TARGETS.length; clearTargets(); return 'cleared '+n+' targets'; }
         }
+        // MECHANIC FORGE: language -> a whole new game mode with its own geometry
+        if(/\b(make|invent|create|forge|design)\b.*\b(game|mode|mechanic|race|challenge|course|minigame)\b|game where|mechanic where/.test(t)){
+            aiForgeMechanic(text);   // async: installs (or falls back to the golden mechanic)
+            return 'forging a new mechanic — watch the lane';
+        }
+        if(/\b(end|stop|quit|exit)\b.*\b(game|mode|mechanic|race|challenge)\b/.test(t)){
+            return (window.MODES && MODES.uninstall()) ? 'mode ended' : 'no custom mode running';
+        }
         // FORTIFY: order every idle bot to build; conjure an ally if the field is empty
         if(/\bfortify\b|build (a |the |me a )?fort|dig in/.test(t)){
             if(typeof localBots==='undefined') return 'bots offline';
@@ -15546,6 +15564,133 @@ const BUS = (() => {
 })();
 window.BUS = BUS;
 
+// ── MODES — the MECHANIC FORGE: whole new game mechanics from language ───────
+// A mechanic is `function mode(game, WG, THREE){…}`: WG builds its OWN geometry
+// (same grammar as worlds; solids collide), `game` is the mechanic surface
+// (tick/hud/win/place/player). Compiled by the FORGE in the SHADOWED sandbox
+// (entry generalization), installed live, torn down clean, and carried by
+// cartridges as rules.mode:'custom' — invent it, save it, hand it to a friend.
+const MODES = (() => {
+    let active = null;   // { state, wg, code }
+    function uninstall() {
+        if (!active) return false;
+        try { scene.remove(active.wg.root); active.wg.root.traverse(o => { try { o.geometry && o.geometry.dispose(); o.material && o.material.dispose && o.material.dispose(); } catch(_){} }); } catch(_){}
+        for (let i = physicsMeshes.length - 1; i >= 0; i--) { const m = physicsMeshes[i]; if (m && m.userData && m.userData._modeGeom) physicsMeshes.splice(i, 1); }
+        const el = document.getElementById('mode-hud'); if (el) { el.textContent = ''; el.style.display = 'none'; }
+        active = null; window.__activeMechanic = null;
+        return true;
+    }
+    function gameAPI(state) {
+        const api = {
+            tick(fn) { if (typeof fn === 'function') state.ticks.push(fn); },
+            hud(text) { state.hudText = String(text == null ? '' : text).slice(0, 64); const el = document.getElementById('mode-hud'); if (el) { el.textContent = state.hudText; el.style.display = state.hudText ? 'flex' : 'none'; } },
+            notify(t) { try { notify(String(t).slice(0, 80)); } catch(_){} },
+            sfx(kind) { try { if (kind === 'win') SFX.complete(); else if (kind === 'hit') SFX.impact(1); else SFX.ui(); } catch(_){} },
+            player: { get pos() { return P.pos; }, get vel() { return P.vel; }, get yaw() { return P.yaw; } },
+            ball: { get pos() { return B.pos; }, get active() { return B.active; }, set active(v) { B.active = !!v; } },
+            place(kind, x, z, opts = {}) {
+                if (kind === 'powerup') return placePowerup(new THREE.Vector3(+x || 0, 0, +z || 0), opts.effect || 'overdrive', opts.respawn || 0);
+                return placeTarget(opts.cup ? 'cup' : 'goal', new THREE.Vector3(+x || 0, 0, +z || 0));
+            },
+            overdrive() { firePowerup('overdrive'); },
+            repair() { firePowerup('repair'); },
+            dist(ax, az, bx, bz) { return Math.hypot(ax - bx, az - bz); },
+            win(text) { api.hud(''); try { notify('🏆 ' + String(text || 'YOU WIN').slice(0, 60)); SFX.complete && SFX.complete(); } catch(_){} uninstall(); },
+            end() { uninstall(); },
+        };
+        return api;
+    }
+    function install(code, name) {
+        uninstall();
+        if (!window.FORGE || !window.WGKIT) return { ok: false, err: 'forge/wg offline' };
+        const wg = WGKIT.makeWG({ THREE, atmosphere: () => {} });   // mechanics build geometry, not weather
+        const state = { name: (name || 'custom').slice(0, 24), ticks: [], hudText: '' };
+        const api = gameAPI(state);
+        // Execute like the rig forge executes build(): one sandboxed run, SHADOWED
+        // globals nulled, no return value demanded (compileEntry requires one and
+        // would reject an honest setup function).
+        const src = FORGE.sanitize(String(code || ''));
+        const fail = (err) => { try { wg.reset && wg.reset(); } catch(_){} api.hud(''); return { ok: false, err }; };
+        let fn;
+        try {
+            fn = new Function('game', 'WG', 'THREE', 'Math', ...FORGE.SHADOWED,
+                '"use strict";\n' + src + '\n;if(typeof mode!=="function"){throw new Error("mode() was never defined")};mode(game,WG,THREE);');
+        } catch (e) { return fail('compile: ' + e.message); }
+        try { fn(api, wg, THREE, Math, ...FORGE.SHADOWED.map(() => undefined)); }
+        catch (e) { return fail('execute: ' + e.message); }
+        const r = { ok: true };
+        scene.add(wg.root);
+        wg.root.updateMatrixWorld(true);
+        (wg.pending || []).forEach(s => { s.mesh.userData.dims = s.dims; s.mesh.userData._ritualWorld = true; s.mesh.userData._modeGeom = true; if (!s.mesh.userData.type) s.mesh.userData.type = 'wg'; physicsMeshes.push(s.mesh); });
+        const wgTick = wg.root.userData && wg.root.userData.tick;
+        if (wgTick) state.ticks.push((dt, t) => { try { wgTick(t); } catch(_){} });
+        active = { state, wg, code: String(code) };
+        window.__activeMechanic = { name: state.name, code: String(code) };
+        notify('MODE INSTALLED — ' + state.name.toUpperCase());
+        return { ok: true, name: state.name };
+    }
+    function tick(dt, t) { if (!active) return; for (const fn of active.state.ticks) { try { fn(dt, t); } catch (e) { console.warn('[mode]', e); } } }
+    return { install, uninstall, tick, get active() { return active; } };
+})();
+window.MODES = MODES;
+
+// The golden mechanic: few-shot example AND the deterministic floor when the
+// model is off or its code fails. Drive through six rings against the clock.
+const GOLDEN_MECHANIC = { name: 'ring-run', code: [
+    "function mode(game, WG, THREE){",
+    "  const rings = [];",
+    "  const R = WG.rand(11);",
+    "  for (let i = 0; i < 6; i++) {",
+    "    const a = i * 1.05 + R() * 0.4, r = 24 + i * 7;",
+    "    const x = Math.cos(a) * r, z = Math.sin(a) * r;",
+    "    const ring = WG.torus(3.4, 0.35, WG.lit(0x19e6c8, 1.2));",
+    "    WG.put(ring, x, 3.4, z, a + 1.57);",
+    "    rings.push({ x, z, mesh: ring, done: false });",
+    "  }",
+    "  let got = 0, t0 = null;",
+    "  game.hud('RING RUN · 0/6');",
+    "  game.tick((dt, t) => {",
+    "    if (t0 === null) t0 = t;",
+    "    for (const r of rings) {",
+    "      if (!r.done && game.dist(game.player.pos.x, game.player.pos.z, r.x, r.z) < 3.4) {",
+    "        r.done = true; r.mesh.visible = false; got++;",
+    "        game.sfx('hit');",
+    "        game.hud('RING RUN · ' + got + '/6 · ' + (t - t0).toFixed(1) + 's');",
+    "      }",
+    "    }",
+    "    if (got === 6) game.win('RING RUN — ' + (t - t0).toFixed(1) + 's');",
+    "  });",
+    "}"].join("\n") };
+
+async function aiForgeMechanic(text) {
+    const doInstall = (code, name) => {
+        const r = MODES.install(code, name);
+        if (!r.ok) { notify('MECHANIC REJECTED — ' + String(r.err).slice(0, 60).toUpperCase()); if (window.AICON) AICON.log('MECHANIC fail · ' + r.err, 'err'); }
+        else if (window.AICON) AICON.log('MECHANIC installed · ' + r.name, 'ok');
+        return r;
+    };
+    let useAI = false; try { useAI = aiLocalAvailable() || getAIConfig().provider === 'thunder'; } catch(_){}
+    if (!useAI) { notify('AI OFF — GOLDEN MECHANIC: RING RUN'); return doInstall(GOLDEN_MECHANIC.code, GOLDEN_MECHANIC.name); }
+    const sys = 'You are a GAME MECHANIC designer for THUNDER RIGS, a neon driving arena.\n' +
+        'OUTPUT CONTRACT — reply with ONLY one JavaScript function, no markdown fences, no prose:\n' +
+        'function mode(game, WG, THREE){ ... }\n' +
+        'HARD RULES: the FIRST characters are exactly `function mode(game, WG, THREE){` and the LAST is its closing brace. Never rename mode. Braces must balance.\n' +
+        'GAME API: game.tick(fn(dt,t)) per-frame · game.player.pos/.vel/.yaw (pos is a THREE.Vector3) · game.ball.pos/.active · game.hud(text) live status (ALWAYS keep one) · game.notify(text) · game.sfx("hit"|"win"|"ui") · game.place("powerup"|"target", x, z, {effect:"overdrive"|"repair", cup:true, respawn:s}) · game.overdrive() / game.repair() · game.dist(ax,az,bx,bz) · game.win(text) ends with victory · game.end() aborts.\n' +
+        'GEOMETRY — build your own with WG, same grammar as worlds: WG.box(w,h,d,m) WG.cyl(r,h,m) WG.cone(r,h,m) WG.sphere(r,m) WG.torus(r,t,m) · materials WG.flat(hex,{rough,metal}) WG.lit(hex,intensity) · WG.put(mesh,x,y,z,ry) places a visual · WG.solid(mesh,w,h,d) makes it COLLIDE · WG.ramp/bank/mound/ridge are drivable · WG.rand(seed) for randomness (never Math.random) · WG.tick(t=>{}) animates.\n' +
+        'CONSTRAINTS: stay inside x,z in [-80,80]; leave a clear circle at (0,15) for the player spawn; under 120 meshes; keep ALL state in the closure; the mechanic must be winnable and call game.win.\n' +
+        'EXAMPLE (imitate the FORMAT and craft, never the subject):\n' + GOLDEN_MECHANIC.code + '\n' +
+        'Design a mechanic for: "' + String(text || '').slice(0, 160) + '"';
+    notify('FORGING MECHANIC…');
+    try {
+        const reply = await requestAIText(String(text || ''), sys, null, 4000, { task: 'mechanic' });
+        const r = doInstall(reply, String(text || 'custom').toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 24));
+        if (!r.ok) { notify('MODEL CODE FAILED — GOLDEN RING RUN INSTEAD'); doInstall(GOLDEN_MECHANIC.code, GOLDEN_MECHANIC.name); }
+    } catch (e) {
+        notify('MECHANIC FORGE FAILED — ' + String(e && e.message || e).slice(0, 50));
+        doInstall(GOLDEN_MECHANIC.code, GOLDEN_MECHANIC.name);
+    }
+}
+
 let _frameErr = null;
 function frame(now) {
     requestAnimationFrame(frame);
@@ -15629,6 +15774,7 @@ function frame(now) {
         if (GAME.mode==='sneak') ProceduralRhetoric.update(dt, time, now);   // SNEAK: agents, whistles, decoy pulses, watcher selection
         tickTargets();              // LANGUAGE targets: ball-into-goal/cup hits
         tickPowerups();             // BUS powerups: drive-through pickups (overdrive/repair)
+        MODES.tick(dt, now * 0.001);// MECHANIC FORGE: the installed custom mode's loop
         updateWrecks(now);
         runCommander(now);
 
