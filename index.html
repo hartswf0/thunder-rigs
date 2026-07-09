@@ -11049,8 +11049,17 @@ document.getElementById('file-upload').addEventListener('change', (e) => {
     reader.onload = (event) => {
         try {
             const data = JSON.parse(event.target.result);
-            // TWIN: an operator-twin film plays on the drive-in screen with camera to match.
-            if (data && data.format === 'operator-twin') { if (window.TWIN) TWIN.showFilm(data); e.target.value = ''; return; }
+            // TWIN: an operator-twin loads as the WHOLE experience — the film screens
+            // on the drive-in AND its transcription performs around it (world, forts,
+            // motions, camera — all directed from the film's own signals).
+            if (data && data.format === 'operator-twin') {
+                if (window.TWIN) {
+                    TWIN.showFilm(data, { noCam: true });                 // the performance owns the camera
+                    try { TWIN.performTwin(TWIN.transcribe(data)); } catch (err) { console.warn('[twin transcribe]', err); }
+                    notify('FILM + TRANSCRIPTION ROLLING — say "save the twin" to keep the 3D version');
+                }
+                e.target.value = ''; return;
+            }
             // THUNDER-TWIN: a prompted performance — every beat forges on the clock.
             if (data && data.format === 'thunder-rigs.twin/v1') { if (window.TWIN) TWIN.performTwin(data); e.target.value = ''; return; }
             // CARTRIDGE: a .trig.json runs the full admission pipeline (CART.load);
@@ -15445,6 +15454,7 @@ function runCommand(text){
         // TWIN verbs — the drive-in film ("play the twin", "stop the twin")
         if(/\btwin\b|\btranscribe\b/.test(t)){
             if(/stop|end|kill|close/.test(t)){ const a = window.TWIN && TWIN.stop(); const b = window.TWIN && TWIN.stopPerf(); return (a || b) ? 'twin stopped' : 'no twin rolling'; }
+            if(/save|keep|download|export/.test(t)) return (window.TWIN && TWIN.saveTranscript()) ? 'twin saved' : 'no transcript yet — transcribe or perform one first';
             // TRANSCRIBE: direct the loaded film into a prompted 3D performance
             if(/transcribe|translate|direct|perform/.test(t)){
                 if(!window.TWIN || !TWIN.lastFilm) { document.getElementById('file-upload')?.click(); return 'load a source .twin.json first — then transcribe'; }
@@ -15716,7 +15726,8 @@ const GOLDEN_MECHANIC = { name: 'ring-run', code: [
 // The film becomes a place you drive to — camera moves and everything to match.
 const TWIN = (() => {
     let show = null;   // { frames, fps, w, h, ctx, tex, screen, idx, t0, name }
-    let lastOp = null; // the last loaded operator-twin — the source "transcribe the twin" reads
+    let lastOp = null;         // the last loaded operator-twin — the source "transcribe the twin" reads
+    let lastTranscript = null; // the last performed/transcribed thunder-twin — "save the twin" writes it
     function parseOperator(d) {
         const byId = {}; (d.nodes || []).forEach(n => { byId[n.id] = n; });
         const frames = (d.activePath || []).map(id => (byId[id] && byId[id].commands) || []);
@@ -15887,8 +15898,10 @@ const TWIN = (() => {
                 travel, hold: Math.max(0.1, span - travel) });
         });
         if (shots.length && window.CINE && CINE.restore) { CINE.restore({ v: 1, shots }); try { CINE.play(false); } catch(_){} }
-        perf = { beats, t0: performance.now(), fired: new Set(), name: (doc.meta && doc.meta.id) || 'twin' };
+        perf = { beats, t0: performance.now(), fired: new Set(), name: (doc.meta && doc.meta.id) || 'twin', doc };
+        lastTranscript = doc;   // the performance IS the artifact — "save the twin" writes it
         notify('◉ TWIN PERFORMING — ' + beats.length + ' BEATS · ' + shots.length + ' SHOTS');
+        tickAll(performance.now());   // at-0 beats land NOW — geometry appears the instant you transcribe
         return { ok: true, beats: beats.length, shots: shots.length };
     }
     function stopPerf() {
@@ -15907,6 +15920,7 @@ const TWIN = (() => {
             if (!perf.fired.has(i) && t >= (b.at || 0)) {
                 perf.fired.add(i);
                 fireBeat(b, i);
+                notify('◉ ' + (i + 1) + '/' + perf.beats.length + ' ' + b.kind.toUpperCase() + ' — ' + String(b.prompt || '').slice(0, 44));
                 if (window.AICON) AICON.log('TWIN beat ' + (i + 1) + '/' + perf.beats.length + ' · ' + b.kind + (b.baked ? ' (' + b.baked + ')' : '') + ' · "' + String(b.prompt || '').slice(0, 40) + '"', 'ok');
             }
         }
@@ -16018,9 +16032,18 @@ const TWIN = (() => {
         notify('BAKE DONE — ' + s.model + ' MODEL · ' + s.golden + ' GOLDEN');
         return performTwin(doc);
     }
-    return { showFilm, stop, performTwin, performAI, stopPerf, bake, bakeAI, analyze, transcribe, transcribeAI, tick: tickAll,
+    function saveTranscript() {
+        if (!lastTranscript) return false;
+        try {
+            const blob = new Blob([JSON.stringify(lastTranscript, null, 2)], { type: 'application/json' });
+            downloadFile(blob, (lastTranscript.meta && lastTranscript.meta.id || 'twin') + '.twin.json');
+            notify('TWIN SAVED — ' + (lastTranscript.meta && lastTranscript.meta.id) + '.twin.json (baked: prompts + code travel together)');
+            return true;
+        } catch (e) { console.warn('[twin save]', e); return false; }
+    }
+    return { showFilm, stop, performTwin, performAI, stopPerf, bake, bakeAI, analyze, transcribe, transcribeAI, saveTranscript, tick: tickAll,
         get playing() { return !!show || !!perf; }, get frame() { return show ? show.idx : -1; },
-        get beat() { return perf ? perf.fired.size : -1; }, get lastFilm() { return lastOp; } };
+        get beat() { return perf ? perf.fired.size : -1; }, get lastFilm() { return lastOp; }, get lastTranscript() { return lastTranscript; } };
 })();
 window.TWIN = TWIN;
 
@@ -16059,6 +16082,7 @@ function frame(now) {
     try {
     let dt = (now - prev) / 1000; prev = now; if(dt > 0.1) dt = 0.1;
     const time = now * 0.001;
+    TWIN.tick(now);   // TWIN runs UNGATED: films screen and performances build even while paused / in menus (it lived inside inPlayMode && !isPaused — transcribing before PLAY fired nothing, silently)
 
     const worldSpec = WORLD_MODE_CONFIG[activeWorldMode] || WORLD_MODE_CONFIG.dark;
     if (aiThinking) {
@@ -16137,7 +16161,6 @@ function frame(now) {
         tickTargets();              // LANGUAGE targets: ball-into-goal/cup hits
         tickPowerups();             // BUS powerups: drive-through pickups (overdrive/repair)
         MODES.tick(dt, now * 0.001);// MECHANIC FORGE: the installed custom mode's loop
-        TWIN.tick(now);             // TWIN: advance the drive-in film at its native fps
         updateWrecks(now);
         runCommander(now);
 
