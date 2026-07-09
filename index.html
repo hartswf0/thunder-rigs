@@ -517,9 +517,11 @@ body.world-light #toast{background:#101820;color:#fff}
     inp.addEventListener('keydown', e => { if (e.key === 'Enter') go(); });
     document.querySelectorAll('#film-examples button').forEach(b => b.addEventListener('click', () => { inp.value = b.dataset.seed; go(); }));
     const cl = document.getElementById('sg-close'); if (cl) cl.addEventListener('click', () => { const p = document.getElementById('scene-graph'); if (p) p.classList.remove('show'); });
-    // menu → STUDIO opens the film studio and focuses the composer
-    const studioBtn = document.getElementById('btn-cine-studio');
-    if (studioBtn) studioBtn.addEventListener('click', () => {
+    // menu → STUDIO opens the film studio and focuses the composer.
+    // Delegated on document: the #btn-cine-studio button is parsed AFTER this
+    // inline script, so a direct getElementById here would bind to null.
+    document.addEventListener('click', e => {
+        if (!(e.target.closest && e.target.closest('#btn-cine-studio'))) return;
         try { const mf = document.getElementById('menu-fab'); if (mf && document.body.classList.contains('menu-open')) mf.click(); } catch(_){}
         const p = document.getElementById('scene-graph'); if (p) p.classList.add('show');
         setTimeout(() => { try { inp.focus(); } catch(_){} }, 80);
