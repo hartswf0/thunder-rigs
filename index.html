@@ -98,7 +98,8 @@ body.menu-open #toolbars { top:max(72px,calc(env(safe-area-inset-top) + 56px)); 
 .bbtn .gly{width:16px;height:12px; border: 2px solid currentColor; margin-bottom: 2px;}
 
 /* ---- SCENE GRAPH (LEFT SIDE) ---- */
-#scene-graph { position: absolute; left: 12px; top: max(60px, calc(env(safe-area-inset-top) + 8px)); max-height: min(72vh, 640px); width: 248px; background: rgba(6,9,12,.92); border: 1px solid rgba(0,255,136,.45); border-radius: 12px; backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); display: none; flex-direction: column; z-index: 9; pointer-events: auto; box-shadow: 0 10px 34px rgba(0,0,0,0.6); overflow: hidden; }
+#scene-graph { position: absolute; left: 12px; top: calc(var(--lane-top, 12px) + 52px); max-height: min(70vh, 600px); width: 250px; background: rgba(6,9,12,.94); border: 1px solid rgba(0,255,136,.4); border-radius: 12px; backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); display: none; flex-direction: column; z-index: 9; pointer-events: auto; box-shadow: 0 12px 38px rgba(0,0,0,0.62); overflow: hidden; }
+#scene-graph .sg-list{ padding: 8px; }
 /* the styled scrollbar the graph was missing */
 #scene-graph .sg-list{ scrollbar-width: thin; scrollbar-color: rgba(25,230,200,.5) transparent; }
 #scene-graph .sg-list::-webkit-scrollbar{ width: 8px; }
@@ -113,22 +114,30 @@ body.menu-open #toolbars { top:max(72px,calc(env(safe-area-inset-top) + 56px)); 
 #scene-graph .sg-group .sg-gcount{flex:0 0 auto;background:rgba(0,255,136,.22);border-radius:8px;padding:0 6px;color:#d6ffe9;font-size:9px}
 #scene-graph .sg-group .sg-gdel{flex:0 0 auto;background:none;border:0;color:#ff6a6a;cursor:pointer;font-size:11px;padding:0 2px;line-height:1}
 #scene-graph .sg-item.sg-child{padding-left:22px;opacity:.85}
-#scene-graph .sg-group.sg-film{background:rgba(168,85,247,.16);border-top-color:rgba(168,85,247,.4);color:#e9d5ff;gap:6px}
-#scene-graph .sg-group.sg-film .sg-gcount{background:rgba(168,85,247,.28);color:#f3e8ff}
-#scene-graph .sg-group.sg-filmmaster{background:rgba(168,85,247,.26)}
-/* rich film rows: name + editable ready-made prompt + GEN */
-#scene-graph .sg-filmrow{display:flex;align-items:center;gap:6px;padding:7px 8px;border:1px solid rgba(168,85,247,.28);border-radius:9px;margin-bottom:5px;background:rgba(168,85,247,.06);cursor:default;white-space:normal}
-#scene-graph .sg-filmrow.built{border-color:rgba(0,255,136,.5);background:rgba(0,255,136,.07)}
-#scene-graph .sg-fl{flex:1;min-width:0;cursor:pointer;overflow:hidden}
-#scene-graph .sg-fnm{display:block;font-size:10.5px;font-weight:800;letter-spacing:.03em;color:#e9d9ff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#scene-graph, #scene-graph *{box-sizing:border-box}
+#scene-graph .sg-gname{min-width:0}
+/* section header: title (truncates) + count + a compact GEN·ALL that never overflows */
+#scene-graph .sg-group.sg-film{background:rgba(168,85,247,.14);border-top:1px solid rgba(168,85,247,.34);color:#e9d5ff;display:flex;align-items:center;gap:6px;padding:8px 10px;letter-spacing:.06em}
+#scene-graph .sg-group.sg-film .sg-gname{flex:1 1 auto;font-size:9.5px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#scene-graph .sg-group.sg-film .sg-gcount{flex:0 0 auto;background:rgba(168,85,247,.26);color:#e4d3ff;font-size:8px;font-weight:700;padding:2px 6px;border-radius:6px;text-transform:none;letter-spacing:0}
+#scene-graph .sg-group.sg-filmmaster{background:rgba(168,85,247,.22);border-top:none}
+/* film rows: name (truncates) + ready-made prompt (2 lines) + a fixed button rail */
+#scene-graph .sg-filmrow{display:flex;align-items:center;gap:7px;padding:8px 9px;border:1px solid rgba(168,85,247,.24);border-radius:9px;margin:0 0 5px;background:rgba(168,85,247,.05);cursor:default}
+#scene-graph .sg-filmrow.built{border-color:rgba(0,255,136,.42);background:rgba(0,255,136,.06)}
+#scene-graph .sg-fl{flex:1 1 auto;min-width:0;cursor:pointer;overflow:hidden}
+#scene-graph .sg-fnm{display:block;font-size:10.5px;font-weight:800;letter-spacing:.02em;color:#ece0ff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 #scene-graph .sg-filmrow.built .sg-fnm{color:#a7f3cf}
-#scene-graph .sg-fpr{display:block;font-size:9px;font-weight:500;color:#9a8fb5;line-height:1.25;max-height:24px;overflow:hidden}
+#scene-graph .sg-fpr{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;font-size:9px;font-weight:500;color:#9d92b8;line-height:1.3;overflow:hidden;margin-top:2px}
 #scene-graph .sg-fl:hover .sg-fnm{color:#fff}
-#scene-graph .sg-fbtn{flex:0 0 auto;background:rgba(25,230,200,.16);border:1px solid rgba(25,230,200,.45);color:#19e6c8;border-radius:7px;font:800 9px/1 inherit;letter-spacing:.05em;padding:6px 7px;cursor:pointer;-webkit-tap-highlight-color:transparent}
+/* button rail — fixed size, right-aligned, never pushes the row wide */
+#scene-graph .sg-fbtn{flex:0 0 auto;background:rgba(25,230,200,.14);border:1px solid rgba(25,230,200,.4);color:#19e6c8;border-radius:7px;font:800 8.5px/1 inherit;letter-spacing:.04em;padding:6px 7px;min-width:34px;text-align:center;cursor:pointer;-webkit-tap-highlight-color:transparent}
 #scene-graph .sg-fbtn:active{transform:scale(.92)}
-#scene-graph .sg-fbtn.ghost{background:none;border-color:rgba(255,255,255,.18);color:#9aa}
-#scene-graph .sg-fbtn.done{background:rgba(0,255,136,.14);border-color:rgba(0,255,136,.45);color:#6ef7b3}
-#scene-graph .sg-fbtn.play{background:rgba(168,85,247,.2);border-color:#a855f7;color:#e9d5ff}
+#scene-graph .sg-fbtn.ghost{background:none;border-color:rgba(255,255,255,.16);color:#9aa1ab;min-width:26px;padding:6px 5px}
+#scene-graph .sg-fbtn.done{background:rgba(0,255,136,.13);border-color:rgba(0,255,136,.42);color:#6ef7b3}
+#scene-graph .sg-fbtn.play{background:rgba(168,85,247,.2);border-color:rgba(168,85,247,.7);color:#ece0ff}
+/* shot rows are camera-jumps: single compact line, no button rail */
+#scene-graph .sg-filmrow.shotrow{padding:7px 9px}
+#scene-graph .sg-filmrow.shotrow .sg-fpr{-webkit-line-clamp:1}
 .sg-header { font-size: 11px; font-weight: 700; letter-spacing: 0.2em; padding: 10px; border-bottom: 1px solid #444; color: #00ff88; background: #000; }
 .sg-list { flex: 1; overflow-y: auto; padding: 8px; display: flex; flex-direction: column; gap: 4px; }
 .sg-item { font-size: 9px; letter-spacing: 0.1em; padding: 8px; border: 1px solid #444; cursor: pointer; color: #ccc; transition: all 0.2s; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: flex; justify-content: space-between; align-items: center;}
@@ -8352,7 +8361,7 @@ window.__repromptGroup = repromptGroup;
 // ready-made prompt — the exact text that regenerates it. Each node links into
 // the real builder. No parallel modal; no crowding the scene unasked.
 const __filmBuilt = new Set();          // asset keys already generated
-const FNCAM = { perception:'wide', action:'behind', affection:'close', opsign:'aerial', sonsign:'low', crystal:'wide', recollection:'wide' };
+const FNCAM = { perception:'wide', action:'behind', affection:'close', opsign:'aerial', sonsign:'low', crystal:'front', recollection:'close' };
 const __RIG_SYS = 'You are a master vehicle artist for THUNDER RIGS. Reply with ONLY one JavaScript function, no fences, no prose:\nfunction build(g, VG, THREE){ ... }\nUse VG: box(w,h,d,m) cyl(r1,r2,h,m,seg) cone sphere ico torus + wheels knobbyWheel(r,w,hub)/slickWheel + materials paint(hex,{rough,metal}) matte metalMat goldMat emiss(hex,i) makeGlass + headlight(hex) glow(hex) contactShadow(w,d). Helpers INSIDE build. A drivable car-scale rig (~4x2x2 units), wheels grounded, under 200 meshes.';
 const __FORT_SYS = 'You are a fortification builder for THUNDER RIGS. Reply with ONLY one JavaScript function, no fences, no prose:\nfunction build(w, WG, THREE){ ... return w; }\nOne focal structure near the origin: WG.box/cyl/cone/sphere/torus + WG.flat(hex,{rough,metal})/WG.lit(hex,i); WG.put(mesh,x,y,z,ry) places, WG.solid(mesh,w,h,d) makes it collide; under 60 meshes; all parts within 12 units of origin; WG.rand(seed) for randomness.';
 async function __forgeAssetCode(kind, prompt){
@@ -8471,8 +8480,8 @@ function __filmSections(list){
             g.addEventListener('click', e => { e.stopPropagation(); __genSection(kind); }); h.appendChild(g); }
         list.appendChild(h); return h; };
     // a rich film row: label + editable prompt sub + GEN + open-in-builder
-    const frow = (name, prompt, built, onGen, onOpen, onEdit) => {
-        const r = document.createElement('div'); r.className = 'sg-item sg-child sg-filmrow' + (built ? ' built' : '');
+    const frow = (name, prompt, built, onGen, onOpen, onEdit, cls) => {
+        const r = document.createElement('div'); r.className = 'sg-item sg-child sg-filmrow' + (built ? ' built' : '') + (cls ? ' ' + cls : '');
         const lab = document.createElement('div'); lab.className = 'sg-fl';
         lab.innerHTML = '<span class="sg-fnm">' + name + '</span><span class="sg-fpr">' + (prompt || '') + '</span>';
         lab.addEventListener('click', onOpen); r.appendChild(lab);
@@ -8505,7 +8514,7 @@ function __filmSections(list){
     if (bp.beats && bp.beats.length){ head('🎬 SHOTS', 'jump the camera');
         bp.beats.forEach((b, i) => { const cam = FNCAM[b.fn] || 'wide'; const subj = (b.subject || (bp.cast && bp.cast[0] && bp.cast[0].name) || 'me');
             frow('SHOT ' + (i+1) + ' · ' + cam.toUpperCase(), '[' + b.fn + '] on ' + subj, false, null,
-                () => { try { window.BUS && BUS.say('camera ' + cam + ' on ' + subj, 'graph'); } catch(_){} }, null); }); }
+                () => { try { window.BUS && BUS.say('camera ' + cam + ' on ' + subj, 'graph'); } catch(_){} }, null, 'shotrow'); }); }
 }
 function updateSceneGraph() {
     const list = document.getElementById('sg-list');
@@ -15732,7 +15741,7 @@ function runCommand(text){
         // MARK ALL SHOTS — populate the reel from the film plan, then you can visualize/verify
         if(/\bmark all\b|\bmark (the |every )?shots?\b|\blay (out|down) (the )?shots?\b/.test(t)){
             const bp = window.TWIN && TWIN.lastBlueprint; if (!bp || !bp.beats) return 'no film — compose one first';
-            const FNC = { perception:'wide', action:'behind', affection:'close', opsign:'aerial', sonsign:'low', crystal:'wide', recollection:'wide' };
+            const FNC = { perception:'wide', action:'behind', affection:'close', opsign:'aerial', sonsign:'low', crystal:'front', recollection:'close' };
             let n = 0; bp.beats.forEach(b => { const cam = FNC[b.fn] || 'wide'; const subj = (b.subject || (bp.cast && bp.cast[0] && bp.cast[0].name) || 'me');
                 const r = BUS.say('mark a ' + cam + ' shot on ' + subj, 'plan'); if (/marked/.test(r)) n++; });
             try { if (window.__camviz) __camviz.refresh(); } catch(_){}
@@ -16585,24 +16594,38 @@ const TWIN = (() => {
     // A film blueprint (cineosis-film/v1) compiles to twin beats that SPEAK the
     // studio grammar on the clock: cast HELLOs, camera moves, shot marks, cue
     // beats, motif forts. Prompt -> actual camera moves -> a reel -> a take.
-    const FN_CAM = { perception: 'wide', action: 'behind', affection: 'close', opsign: 'aerial', sonsign: 'low', crystal: 'wide', recollection: 'wide' };
+    const FN_CAM = { perception: 'wide', action: 'behind', affection: 'close', opsign: 'aerial', sonsign: 'low', crystal: 'front', recollection: 'close' };
+    // The full ABC CINEOSIS 21-image matrix: 7 image types × PAST/PRESENT/FUTURE.
+    // PAST carries memory & residue, FUTURE carries consequence — so the film
+    // reads as time, not a slideshow. Each image gets its own camera treatment.
+    const FN7 = ['perception', 'action', 'affection', 'opsign', 'sonsign', 'crystal', 'recollection'];
     function goldenFilm(seed) {
         const words = String(seed || 'the storm gate').toLowerCase().replace(/[^a-z0-9 ]/g, '').split(/\s+/).filter(w => w.length > 2);
         const thing = words[words.length - 1] || 'gate';
         const name = (words.find(w => !['the', 'and', 'about', 'with'].includes(w)) || 'vess').slice(0, 10);
-        const fns = ['perception', 'action', 'affection', 'opsign', 'sonsign', 'crystal', 'recollection', 'action', 'opsign'];
-        const layers = ['past', 'present', 'present', 'past', 'present', 'past', 'past', 'future', 'future'];
-        const acts = [name + ' patrols slowly', name + ' orbits the ' + thing + ' fast', 'everything freezes',
-            'an overdrive pad here', name + ' guards the ' + thing, 'everything bobs slowly',
-            name + ' patrols slowly', 'a cup at center', 'everything floats slowly'];
-        const snds = ['low hum, rising', 'thunder strike', 'hush', 'chime', 'low hum', 'hush', 'rumble rising', 'impact', 'chime resolve'];
+        // action per (layer, image-type) — memory in past, consequence in future
+        const ACT = {
+            past:    [name + ' remembers the ' + thing, name + ' circles the ruined ' + thing + ' slowly', 'everything freezes', 'everything bobs slowly', name + ' patrols slowly', 'everything floats slowly', name + ' guards the ' + thing],
+            present: [name + ' watches the ' + thing, name + ' orbits the ' + thing + ' fast', 'an overdrive pad here', 'everything freezes', name + ' guards the ' + thing, 'a cup at center', name + ' patrols slowly'],
+            future:  [name + ' sees the ' + thing + ' fall', name + ' flees the ' + thing, 'everything floats slowly', 'everything freezes', name + ' guards the ' + thing, 'everything bobs fast', name + ' patrols slowly'],
+        };
+        const SND = {
+            past:    ['distant hum', 'low rumble', 'hush', 'faded voice', 'room tone', 'soft echo', 'a remembered chime'],
+            present: ['rising hum', 'thunder strike', 'sharp breath', 'silence', 'low hum', 'chime', 'held note'],
+            future:  ['swelling drone', 'collapse', 'final chime', 'silence', 'fading signal', 'impact', 'last echo'],
+        };
+        const beats = [];
+        ['past', 'present', 'future'].forEach(layer => FN7.forEach((fn, i) => {
+            beats.push({ title: fn + ' · ' + layer, dur: 5, fn, layer, subject: name,
+                action: ACT[layer][i], sound: SND[layer][i], transition: (i % 3 === 0) ? 'dissolve' : 'cut' });
+        }));
         return { format: 'cineosis-film/v1',
             title: ('THE ' + thing + ' THAT REMEMBERS').toUpperCase(),
-            seed: String(seed || ''), engine: 'the ' + thing + "'s past floods every present crossing",
+            seed: String(seed || ''), engine: 'the ' + thing + "'s past floods the present and its fall haunts the future",
             abc: { a: name + ' — pressure of guarding what already fell', b: thing + ' beams, rain voxels, a circling rig', c: 'the arena replays the ' + thing + ' inside the scene' },
             motifs: [{ name: 'the ' + thing, past: 'a broken ' + thing + ' of leaning pillars', present: 'a lit ' + thing + ' arch', future: 'a tall wireframe ' + thing + ' of thin spires' }],
             cast: [{ name, desc: String(seed || 'a keeper') }],
-            beats: fns.map((fn, i) => ({ title: fn + ' of the ' + thing, dur: 6, fn, layer: layers[i], subject: name, action: acts[i], sound: snds[i], transition: i % 3 === 0 ? 'dissolve' : 'cut' })) };
+            beats };
     }
     function compileFilm(bp) {
         const beats = []; let t = 0;
@@ -16645,7 +16668,7 @@ const TWIN = (() => {
                 '"motifs":[{"name":"...","past":"physical form","present":"physical form","future":"physical form"}],' +
                 '"cast":[{"name":"oneword","desc":"a physical rig description"}],' +
                 '"beats":[{"title":"...","dur":6,"fn":"perception|action|affection|opsign|sonsign|crystal|recollection","layer":"past|present|future","subject":"castname","action":"a SHORT spoken direction (patrol/orbit/guard/freeze verbs, or game verbs like an overdrive pad here)","sound":"hum|thunder|hush|chime|rumble|impact words","transition":"cut|dissolve|hold"}]}\n' +
-                'Rules: 8-12 beats; every fn appears at least once; actions are utterances a game parses, not literature; motif forms are buildable physical descriptions.\n' +
+                'Rules: the FULL 21-image matrix — exactly 21 beats = each of the 7 fns once per layer (past, present, future). PAST beats carry memory/residue, FUTURE beats carry consequence (falling, fleeing, absence). Actions are utterances a game parses, not literature; motif forms are buildable physical descriptions.\n' +
                 'EXAMPLE (format, not content):\n' + JSON.stringify(golden) + '\nFilm seed: "' + String(seed).slice(0, 160) + '"';
             try {
                 const reply = await Promise.race([
