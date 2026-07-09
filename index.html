@@ -15540,6 +15540,14 @@ function runCommand(text){
             if (window.TWIN && TWIN.composeFilm) { TWIN.composeFilm(seed); return 'composing — the film will direct itself, then "export the film"'; }
             return 'cineosis offline';
         }
+        // SHOW THE SCRIPT: read the composed blueprint back (also logged to AI·LOG)
+        if(/\b(show|read|see)\b.*\b(script|screenplay|blueprint|beat sheet)\b|\bthe script\b/.test(t)){
+            const bp = window.TWIN && TWIN.lastBlueprint;
+            if (!bp) return 'no script yet — "compose a film about <anything>" first';
+            try { if (window.AICON) { AICON.log('🎬 ' + bp.title + ' · ' + (bp.engine || ''), 'ok');
+                (bp.beats || []).forEach((b, i) => AICON.log('  ' + (i + 1) + '. [' + b.fn + '] ' + (b.action || b.title || '') + ' · ♪ ' + (b.sound || ''), 'ok')); } } catch(_){}
+            return bp.title + ' — ' + (bp.beats || []).length + ' beats · cast: ' + (bp.cast || []).map(c => c.name).join(', ') + ' · full beat sheet in AI·LOG';
+        }
         // EXPORT THE FILM: play the reel while recording, auto-save the take
         if(/\b(export|save|render)\b.*\bfilm\b|\bfilm it\b|\bmake (the |a )?film\b/.test(t)){
             if (!window.CINE) return 'cine offline';
@@ -15853,6 +15861,7 @@ const TWIN = (() => {
     let show = null;   // { frames, fps, w, h, ctx, tex, screen, idx, t0, name }
     let lastOp = null;         // the last loaded operator-twin — the source "transcribe the twin" reads
     let lastTranscript = null; // the last performed/transcribed thunder-twin — "save the twin" writes it
+    let lastBlueprint = null;  // the last CINEOSIS blueprint — "show the script" reads it back
     function parseOperator(d) {
         const byId = {}; (d.nodes || []).forEach(n => { byId[n.id] = n; });
         const frames = (d.activePath || []).map(id => (byId[id] && byId[id].commands) || []);
@@ -16391,9 +16400,10 @@ const TWIN = (() => {
             beats: beats.sort((a, b2) => a.at - b2.at) };
     }
     async function composeFilm(seed) {
+        notify('🎬 COMPOSING — "' + String(seed).slice(0, 40) + '"…');
         const golden = goldenFilm(seed);
         let bp = golden;
-        let useAI = false; try { useAI = aiLocalAvailable() || getAIConfig().provider === 'thunder'; } catch(_){}
+        let useAI = false; try { useAI = aiLocalAvailable(); } catch(_){}   // direct key only — the proxy can stall
         if (useAI) {
             const sys = 'You are ABC CINEOSIS, a cybernetic cinema system. Compose a film as JSON ONLY (no prose, no fences):\n' +
                 '{"format":"cineosis-film/v1","title":"...","seed":"...","engine":"one sentence: how past/present/future interact",' +
@@ -16404,16 +16414,22 @@ const TWIN = (() => {
                 'Rules: 8-12 beats; every fn appears at least once; actions are utterances a game parses, not literature; motif forms are buildable physical descriptions.\n' +
                 'EXAMPLE (format, not content):\n' + JSON.stringify(golden) + '\nFilm seed: "' + String(seed).slice(0, 160) + '"';
             try {
-                const reply = await requestAIText(String(seed), sys, null, 3500, { task: 'cineosis' });
+                const reply = await Promise.race([
+                    requestAIText(String(seed), sys, null, 3500, { task: 'cineosis' }),
+                    new Promise((_, rej) => setTimeout(() => rej(new Error('composer timeout — golden poet takes over')), 12000)),
+                ]);
                 let x = String(reply || '').replace(/```json/gi, '').replace(/```/g, '').trim();
                 const a = x.indexOf('{'), b = x.lastIndexOf('}');
                 if (a >= 0 && b > a) x = x.slice(a, b + 1);
                 const cand = JSON.parse(x);
                 if (cand && cand.format === 'cineosis-film/v1' && Array.isArray(cand.beats) && cand.beats.length >= 6) bp = cand;
-            } catch (e) { console.warn('[cineosis]', e && e.message); }
+            } catch (e) { console.warn('[cineosis]', e && e.message); notify('MODEL COMPOSER UNAVAILABLE — GOLDEN POET DIRECTS'); }
         }
+        lastBlueprint = bp;   // THE SCRIPT — "show the script" reads it back
+        try { if (window.AICON) { AICON.log('🎬 ' + bp.title + ' · engine: ' + (bp.engine || '—'), 'ok');
+            (bp.beats || []).forEach((b, i) => AICON.log('  beat ' + (i + 1) + ' [' + b.fn + '/' + (b.layer || '') + '] ' + (b.title || '') + ' — ' + (b.action || '') + ' · ♪ ' + (b.sound || ''), 'ok')); } } catch(_){}
         const tw = compileFilm(bp);
-        notify('🎬 ' + (bp.title || 'FILM') + ' — ' + tw.beats.length + ' beats' + (bp === golden ? ' (golden poet)' : ' (model composed)'));
+        notify('🎬 ' + (bp.title || 'FILM') + ' — ' + tw.beats.length + ' beats' + (bp === golden ? ' (golden poet)' : ' (model composed)') + ' — "show the script" to read it');
         return performTwin(tw);
     }
     async function performAI(doc, onBeat) {
@@ -16433,7 +16449,7 @@ const TWIN = (() => {
     }
     return { showFilm, stop, performTwin, performAI, stopPerf, bake, bakeAI, analyze, transcribe, transcribeAI, saveTranscript, elements, compileFort, compileRig, sculpt, goldenFilm, compileFilm, composeFilm, tick: tickAll,
         get playing() { return !!show || !!perf; }, get frame() { return show ? show.idx : -1; },
-        get beat() { return perf ? perf.fired.size : -1; }, get lastFilm() { return lastOp; }, get lastTranscript() { return lastTranscript; } };
+        get beat() { return perf ? perf.fired.size : -1; }, get lastFilm() { return lastOp; }, get lastTranscript() { return lastTranscript; }, get lastBlueprint() { return lastBlueprint; } };
 })();
 window.TWIN = TWIN;
 
