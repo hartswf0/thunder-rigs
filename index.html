@@ -53,8 +53,30 @@ body.play-mode #toolbars { display:none; }
 #menu-fab:active { background:#fff; color:#000; }
 #play-fab{position:absolute;left:50%;top:max(16px,env(safe-area-inset-top));transform:translateX(-50%);z-index:46;height:38px;padding:0 18px;border-radius:8px;border:1px solid #19e6c8;background:#19e6c8;color:#000;font-family:inherit;font-size:12px;font-weight:700;letter-spacing:.12em;cursor:pointer;box-shadow:0 3px 12px rgba(0,0,0,.5)}
 #play-fab:active{background:#12c5ab}
-body.ctf-live #play-fab{display:none}
 body.menu-open #play-fab{display:none}
+/* ═══ SHELL — one layout manager: slot lane · z registry · modal frame ═══
+   The top bar is a single slot lane: [brand] [game-status] [menu]. Occupants
+   register onto shared lane coordinates instead of picking their own; the
+   shell resolves who owns center. Modals share one z tier and one safe frame
+   so DRIVE/JUMP/FIRE/BOOST are never occluded. */
+:root{ --lane-top:max(12px,env(safe-area-inset-top)); --lane-h:46px;
+  --z-hud:40; --z-lane:46; --z-line:80; --z-modal:200; --z-ritual:300; --z-top:340; }
+/* status slot: score HUDs own top-center, aligned to the lane */
+#ctf-scoreboard,#golf-hud{ top:var(--lane-top)!important; z-index:var(--z-hud)!important; }
+/* PLAY sits in the status slot while idle; the moment a game HUD is live
+   (body.hud-live, set by the shell observer) it collapses to a chip beside the
+   menu — the score's turn to own center. */
+body.hud-live #play-fab{ left:auto!important; right:max(16px,env(safe-area-inset-right))!important; top:calc(var(--lane-top) + 56px)!important; transform:none!important; width:38px!important; min-width:0!important; padding:0!important; font-size:0!important; letter-spacing:0!important; }
+body.hud-live #play-fab::after{ content:'▶'; font-size:13px; }
+/* modal tier: every big panel shares one z value from the registry */
+#mp-modal,#api-modal,#bot-modal,#match-modal,#help-modal,#export-modal,#behavior-modal{ z-index:var(--z-modal)!important; }
+body.in-ritual #api-modal{ z-index:var(--z-top)!important; }
+/* modal safe frame (mobile): pin every modal to the band between the lane and
+   the drive controls, so JUMP/FIRE/BOOST stay visible and tappable */
+@media (max-width:760px){
+  #mp-modal,#api-modal,#bot-modal,#behavior-modal{ top:calc(var(--lane-top) + 54px)!important; bottom:max(165px,calc(env(safe-area-inset-bottom) + 155px))!important; transform:translateX(-50%)!important; max-height:none!important; overflow:auto!important; }
+  #help-modal{ inset:calc(var(--lane-top) + 54px) 12px max(165px,calc(env(safe-area-inset-bottom) + 155px)) 12px!important; }
+}
 #menu-fab .x { display:none; } body.menu-open #menu-fab .bars { display:none; } body.menu-open #menu-fab .x { display:inline; }
 body.menu-open #toolbars { top:max(72px,calc(env(safe-area-inset-top) + 56px)); }
 .tb-group { display:flex; flex-direction:row-reverse; align-items:center; gap:8px; }
@@ -704,7 +726,10 @@ body.in-ritual #proposal-ui{z-index:338}
 /* small persistent button to reopen the HELLO/WORLD editor anytime in play */
 #ritual-reopen{position:absolute;top:max(12px,env(safe-area-inset-top));left:12px;z-index:47;display:none;align-items:center;justify-content:center;width:46px;height:46px;padding:0;border:none;border-radius:12px;background:#e0243a;color:#fff;cursor:pointer;box-shadow:0 4px 14px rgba(0,0,0,.5);-webkit-tap-highlight-color:transparent}
 #ritual-reopen svg{width:26px;height:26px;fill:#fff}
-body.ritual-done:not(.in-ritual) #ritual-reopen{display:flex}
+/* ONE THUNDERMARK: the red reopen pill is retired — the stowed field-builder
+   bolt (brand slot, top-left) is the single mark; HELLO/WORLD reopens from the
+   red bolt inside the opened builder line (#btn-open-ritual). */
+body.ritual-done:not(.in-ritual) #ritual-reopen{display:none}
 /* FLASH the Enter-world portal so players see the way across into the world */
 @keyframes ctaFlash{0%,100%{box-shadow:0 0 0 0 rgba(25,230,200,0);border-color:rgba(255,255,255,.14)}50%{box-shadow:0 0 26px 3px rgba(25,230,200,.5);border-color:rgba(25,230,200,.75)}}
 body.in-ritual #ritual-cta{animation:ctaFlash 1.6s ease-in-out infinite}
@@ -720,9 +745,10 @@ body.in-ritual #ritual-cta .door-glyph{color:#19e6c8}
 #tutor .tutor-skip{background:none;border:none;color:#7f8b95;font:700 11px/1 inherit;letter-spacing:.1em;cursor:pointer;padding:8px 6px}
 #tutor .tutor-do{flex:1;background:#19e6c8;color:#04120f;border:none;border-radius:11px;padding:13px 16px;font:800 13px/1 Inter,-apple-system,sans-serif;letter-spacing:.05em;cursor:pointer;-webkit-tap-highlight-color:transparent}
 #tutor .tutor-do:active{transform:translateY(1px)}
-/* the STOWED field builder is a compact lightning toggle, parked top-left UNDER
-   the red ritual bolt (out of the centred PLAY button's way), not a wide pill */
-#ai-bar.std-agent-shell.stowed{width:auto!important;min-width:0!important;max-width:none!important;padding:9px 11px!important;left:max(12px,env(safe-area-inset-left))!important;right:auto!important;transform:none!important;top:max(64px,calc(env(safe-area-inset-top) + 64px))!important}
+/* the STOWED field builder IS the thundermark: the single brand bolt in the
+   lane's left slot. Tap = open the builder line; the line's red bolt reopens
+   HELLO/WORLD. */
+#ai-bar.std-agent-shell.stowed{width:auto!important;min-width:0!important;max-width:none!important;padding:9px 11px!important;left:max(12px,env(safe-area-inset-left))!important;right:auto!important;transform:none!important;top:var(--lane-top)!important;background:#e0243a!important;border-color:transparent!important;border-radius:12px!important;box-shadow:0 4px 14px rgba(0,0,0,.5)!important}
 /* CLOSE/MINIMISE the main builder — touch-sized, top-right, only once onboarding
    is done (so first-timers still finish HELLO). Reveals the thunder reopen pill. */
 #ritual-min{position:fixed;top:max(12px,env(safe-area-inset-top));right:max(12px,env(safe-area-inset-right));z-index:60;display:none;align-items:center;justify-content:center;width:46px;height:46px;padding:0;border:1px solid rgba(255,255,255,.28);border-radius:12px;background:rgba(10,10,12,.62);cursor:pointer;-webkit-tap-highlight-color:transparent}
@@ -1341,6 +1367,9 @@ body.watcher-role #crosshair{display:none!important}
                 <rect x="9" y="3.5" width="6" height="11" rx="3"/>
                 <path d="M6.5 11.5a5.5 5.5 0 0 0 11 0M12 17v3M9 20h6"/>
             </svg>
+        </button>
+        <button id="btn-open-ritual" class="std-icon" type="button" aria-label="rebuild rig or world" title="HELLO · WORLD — rebuild your rig or world">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 2v11h3v9l7-12h-4l4-8z"/></svg>
         </button>
         <button id="btn-line-stow" class="std-icon" type="button" aria-label="stow the line" title="stow — one tap brings it back">
             <svg class="stow-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 10l6 5 6-5" fill="none" stroke="currentColor" stroke-width="2.2"/></svg>
@@ -11141,7 +11170,7 @@ document.getElementById('btn-close-help').addEventListener('click', () => {
     { t:'JUMP off ramps. Hold BOOST to climb. Tap FIRE to break things.', b:'GOT IT ›', act(){} },
     { t:'Drop a fort in the field: tap ⚡, type it, it lands in front of you.', b:'⚡ OPEN FIELD BUILDER', act(){ openField(); } },
     { t:'Open the workbench — tap ≡ for tools, garage, cameras and settings.', b:'≡ OPEN MENU', act(){ tap('menu-fab'); } },
-    { t:'Rebuild your rig or world anytime: the red ⚡, top-left.', b:'GOT IT ›', act(){} },
+    { t:'Rebuild your rig or world: tap ⚡, then the red bolt inside.', b:'GOT IT ›', act(){} },
     { t:'Play together — host a room and hand over the link.',      b:'⧉ HOST A ROOM', act(){ tap('btn-mp-do-host'); }, last:true },
   ];
   let i = 0;
@@ -12420,6 +12449,23 @@ function markCoachDone(id){ const el = document.getElementById(id); if (el){ el.
                 enterPlay();
             }
         }, true);
+    });
+
+    // ---- SHELL: slot-lane occupancy ----
+    // When a game-status HUD (score/golf) is visible it owns top-center; the
+    // shell flags body.hud-live and PLAY collapses to a chip beside the menu.
+    setInterval(() => {
+        try {
+            const live = ['ctf-scoreboard','golf-hud'].some(id => { const el = document.getElementById(id); return el && getComputedStyle(el).display !== 'none'; });
+            body.classList.toggle('hud-live', live);
+        } catch(_){}
+    }, 500);
+    // the red bolt inside the builder line reopens HELLO/WORLD
+    const openRitualBtn = document.getElementById('btn-open-ritual');
+    if (openRitualBtn) openRitualBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        try { if (typeof window.__stowLine === 'function') window.__stowLine(true); } catch(_){}
+        if (window.__openRitual) window.__openRitual();
     });
 
     // ---- make existing toolbar toggles close other panels when they open one ----
@@ -15633,9 +15679,13 @@ body.agent-line-open #action-zone,body.agent-line-open #drivezone,body.agent-lin
 /* STOWED in-scene builder shows the LIGHTNING (brand affordance to reopen it),
    matching the ritual's thunder reopen — the lightning "goes with" the builder. */
 #btn-line-stow .stow-bolt{display:none;fill:currentColor;stroke:none}
-#ai-bar.stowed #btn-line-stow{color:#19e6c8!important}
+#ai-bar.stowed #btn-line-stow{color:#fff!important}
 #ai-bar.stowed #btn-line-stow .stow-chevron{display:none}
-#ai-bar.stowed #btn-line-stow .stow-bolt{display:block;width:20px!important;height:20px!important}
+#ai-bar.stowed #btn-line-stow .stow-bolt{display:block;width:22px!important;height:22px!important}
+/* the red bolt INSIDE the open line reopens HELLO/WORLD (rig+world editor) */
+#btn-open-ritual{color:#e0243a!important}
+#btn-open-ritual svg{width:17px;height:17px;fill:currentColor}
+#ai-bar.stowed #btn-open-ritual{display:none!important}
 
 /* SAY keeps its chips, but its command row is now the same object language. */
 #cmd-modal{align-items:flex-end!important;justify-content:center!important;padding:12px 9px max(12px,env(safe-area-inset-bottom))!important;background:rgba(0,5,9,.48)!important}
