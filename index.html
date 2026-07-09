@@ -11049,6 +11049,8 @@ document.getElementById('file-upload').addEventListener('change', (e) => {
     reader.onload = (event) => {
         try {
             const data = JSON.parse(event.target.result);
+            // TWIN: an operator-twin film plays on the drive-in screen with camera to match.
+            if (data && data.format === 'operator-twin') { if (window.TWIN) TWIN.showFilm(data); e.target.value = ''; return; }
             // CARTRIDGE: a .trig.json runs the full admission pipeline (CART.load);
             // legacy {name, objects} level saves take the old path unchanged.
             if (data && data.format === 'thunder-rigs.cartridge/v1') { CART.load(data); e.target.value = ''; return; }
@@ -15427,6 +15429,12 @@ function tickTargets(){
 function runCommand(text){
     const t=String(text||'').trim().toLowerCase(); if(!t) return 'type a command';
     try{
+        // TWIN verbs — the drive-in film ("play the twin", "stop the twin")
+        if(/\btwin\b/.test(t)){
+            if(/stop|end|kill|close/.test(t)) return (window.TWIN && TWIN.stop()) ? 'twin stopped' : 'no twin rolling';
+            if(window.TWIN && TWIN.playing) return 'twin already rolling — frame ' + TWIN.frame;
+            document.getElementById('file-upload')?.click(); return 'pick a .twin.json — it plays on the drive-in screen';
+        }
         // cinema verbs first — they are specific words and never collide with build verbs
         if(/\bcut\b|stop (the )?(rec|record|film|reel)/.test(t)){ CINE.cut(); return 'cut'; }
         if(/\baction\b|\bfilm it\b|make (a |the )?film|shoot (the )?(reel|film)/.test(t)){ CINE.film(); return CINE.shots.length? 'rolling — filming the reel':'mark shots first'; }
@@ -15662,6 +15670,89 @@ const GOLDEN_MECHANIC = { name: 'ring-run', code: [
     "  });",
     "}"].join("\n") };
 
+// ── TWIN — perform an operator-twin film inside the world ────────────────────
+// A .twin.json is a film that IS code: frames of drawing commands (CLR/PNT/LIN)
+// on a dot-matrix, versioned as an authored tree. TWIN rasterizes the committed
+// path onto a drive-in screen in the arena at native fps and hands CINE a
+// matched shot list (establish → dolly → orbit) sized to the film's duration.
+// The film becomes a place you drive to — camera moves and everything to match.
+const TWIN = (() => {
+    let show = null;   // { frames, fps, w, h, ctx, tex, screen, idx, t0, raf, name }
+    function parseOperator(d) {
+        const byId = {}; (d.nodes || []).forEach(n => { byId[n.id] = n; });
+        const frames = (d.activePath || []).map(id => (byId[id] && byId[id].commands) || []);
+        return { w: d.width || 128, h: d.height || 96, fps: d.fps || 8, frames, name: String(d.root || 'twin').slice(0, 24) };
+    }
+    // 0..7 palette -> phosphor teal ramp (0 brightest — strokes land on CLR 7 grounds)
+    function col(v) { v = Math.max(0, Math.min(7, +v || 0)); const b = Math.round(255 * (7 - v) / 7);
+        return 'rgb(' + Math.round(b * 0.45) + ',' + b + ',' + Math.round(b * 0.85) + ')'; }
+    function raster(ctx, w, h, cmds) {
+        for (const c of cmds) {
+            const p = c.split(' ');
+            if (p[0] === 'CLR') { ctx.fillStyle = col(p[1]); ctx.fillRect(0, 0, w, h); }
+            else if (p[0] === 'PNT') { ctx.fillStyle = col(p[5]); ctx.fillRect(+p[1], +p[2], (+p[3]) || 1, (+p[4]) || 1); }
+            else if (p[0] === 'LIN') { ctx.strokeStyle = col(p[5]); ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(+p[1] + 0.5, +p[2] + 0.5); ctx.lineTo(+p[3] + 0.5, +p[4] + 0.5); ctx.stroke(); }
+        }
+    }
+    function buildScreen(w, h, tex) {
+        const g = new THREE.Group();
+        const W = 26, H = W * (h / w);
+        const frame = new THREE.Mesh(new THREE.BoxGeometry(W + 1.6, H + 1.6, 1), new THREE.MeshStandardMaterial({ color: 0x14181d, roughness: 0.6, metalness: 0.4 }));
+        frame.position.y = H / 2 + 2.2; g.add(frame);
+        const face = new THREE.Mesh(new THREE.PlaneGeometry(W, H), new THREE.MeshBasicMaterial({ map: tex }));
+        face.position.set(0, H / 2 + 2.2, 0.56); g.add(face);
+        [-1, 1].forEach(s => { const leg = new THREE.Mesh(new THREE.BoxGeometry(0.8, 2.4, 0.8), new THREE.MeshStandardMaterial({ color: 0x1a2226 })); leg.position.set(s * (W / 2 - 1), 1.2, 0); g.add(leg); });
+        const glow = new THREE.Mesh(new THREE.PlaneGeometry(W * 1.7, 3.2), new THREE.MeshBasicMaterial({ color: 0x19e6c8, transparent: true, opacity: 0.12, depthWrite: false }));
+        glow.rotation.x = -Math.PI / 2; glow.position.set(0, 0.06, 5); g.add(glow);
+        g.position.set(0, 0, -44);   // faces the spawn lane
+        g.userData = { name: 'twin-screen', type: 'twin' };
+        return { group: g, H };
+    }
+    function stop() {
+        if (!show) return false;
+        try { scene.remove(show.screen); show.screen.traverse(o => { try { o.geometry && o.geometry.dispose(); o.material && o.material.dispose && o.material.dispose(); } catch(_){} }); } catch(_){}
+        try { window.CINE && CINE.stopPlay && CINE.stopPlay(); } catch(_){}
+        show = null; return true;
+    }
+    // Driven by the game's frame loop (one scheduler owns time — same as MODES).
+    function tick(now) {
+        if (!show) return;
+        const i = Math.floor((now - show.t0) / 1000 * show.fps) % show.frames.length;
+        if (i !== show.idx) { show.idx = i; raster(show.ctx, show.w, show.h, show.frames[i]); show.tex.needsUpdate = true; }
+    }
+    function showFilm(doc, opts = {}) {
+        stop();
+        const f = parseOperator(doc);
+        if (!f.frames.length) { notify('TWIN EMPTY — NO COMMITTED FRAMES'); return { ok: false }; }
+        const cv = document.createElement('canvas'); cv.width = f.w; cv.height = f.h;
+        const ctx = cv.getContext('2d');
+        const tex = new THREE.CanvasTexture(cv);
+        tex.magFilter = THREE.NearestFilter; tex.minFilter = THREE.NearestFilter;   // honest dots
+        const { group, H } = buildScreen(f.w, f.h, tex);
+        scene.add(group);
+        raster(ctx, f.w, f.h, f.frames[0]); tex.needsUpdate = true;
+        show = { ...f, ctx, tex, screen: group, idx: 0, t0: performance.now() };
+        // CAMERA TO MATCH: hand CINE a shot list sized to the film's duration —
+        // wide establish, slow dolly to the screen, low side orbit, hold.
+        const dur = f.frames.length / f.fps;
+        const look = [0, H / 2 + 2.2, -44];
+        if (!opts.noCam && window.CINE && CINE.restore && CINE.play) {
+            CINE.restore({ v: 1, shots: [
+                { p: [0, 10, 26],  t: look, mode: 'FREE', hold: Math.min(6, dur * 0.1), travel: 3 },
+                { p: [0, 5, -18],  t: look, mode: 'FREE', hold: Math.min(20, dur * 0.35), travel: Math.min(24, dur * 0.3) },
+                { p: [20, 4, -36], t: look, mode: 'FREE', hold: Math.min(15, dur * 0.2), travel: 8 },
+                { p: [-16, 7, -30], t: look, mode: 'FREE', hold: Math.min(10, dur * 0.15), travel: 9 },
+            ] });
+            try { CINE.play(false); } catch(_){}
+        }
+        notify('◉ TWIN ROLLING — ' + f.frames.length + ' FRAMES @ ' + f.fps + 'fps · ' + Math.round(dur) + 's');
+        if (window.AICON) AICON.log('TWIN · ' + f.name + ' · ' + f.frames.length + 'f @ ' + f.fps + 'fps', 'ok');
+        return { ok: true, frames: f.frames.length, fps: f.fps, dur };
+    }
+    return { showFilm, stop, tick, get playing() { return !!show; }, get frame() { return show ? show.idx : -1; } };
+})();
+window.TWIN = TWIN;
+
 async function aiForgeMechanic(text) {
     const doInstall = (code, name) => {
         const r = MODES.install(code, name);
@@ -15775,6 +15866,7 @@ function frame(now) {
         tickTargets();              // LANGUAGE targets: ball-into-goal/cup hits
         tickPowerups();             // BUS powerups: drive-through pickups (overdrive/repair)
         MODES.tick(dt, now * 0.001);// MECHANIC FORGE: the installed custom mode's loop
+        TWIN.tick(now);             // TWIN: advance the drive-in film at its native fps
         updateWrecks(now);
         runCommander(now);
 
