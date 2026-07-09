@@ -8366,6 +8366,7 @@ window.__repromptGroup = repromptGroup;
 // ready-made prompt — the exact text that regenerates it. Each node links into
 // the real builder. No parallel modal; no crowding the scene unasked.
 const __filmBuilt = new Set();          // asset keys already generated
+const __filmCollapsed = new Set(['shots:past', 'shots:present', 'shots:future']);   // big shot lists start folded
 const FNCAM = { perception:'wide', action:'behind', affection:'close', opsign:'aerial', sonsign:'low', crystal:'front', recollection:'close' };
 const __RIG_SYS = 'You are a master vehicle artist for THUNDER RIGS. Reply with ONLY one JavaScript function, no fences, no prose:\nfunction build(g, VG, THREE){ ... }\nUse VG: box(w,h,d,m) cyl(r1,r2,h,m,seg) cone sphere ico torus + wheels knobbyWheel(r,w,hub)/slickWheel + materials paint(hex,{rough,metal}) matte metalMat goldMat emiss(hex,i) makeGlass + headlight(hex) glow(hex) contactShadow(w,d). Helpers INSIDE build. A drivable car-scale rig (~4x2x2 units), wheels grounded, under 200 meshes.';
 const __FORT_SYS = 'You are a fortification builder for THUNDER RIGS. Reply with ONLY one JavaScript function, no fences, no prose:\nfunction build(w, WG, THREE){ ... return w; }\nOne focal structure near the origin: WG.box/cyl/cone/sphere/torus + WG.flat(hex,{rough,metal})/WG.lit(hex,i); WG.put(mesh,x,y,z,ry) places, WG.solid(mesh,w,h,d) makes it collide; under 60 meshes; all parts within 12 units of origin; WG.rand(seed) for randomness.';
@@ -8432,6 +8433,26 @@ async function __genImageLayer(layer){
     const bp = TWIN.lastBlueprint; if (!bp) return;
     for (let i = 0; i < bp.beats.length; i++) if (bp.beats[i].layer === layer) await __genImagePrompt(i);
 }
+// ACTIVATE a shot's prompt — forge geometry FROM the image prompt, place it,
+// and frame the camera on it. The prompt stops being text and becomes a shot.
+async function __stageShot(i){
+    const bp = TWIN.lastBlueprint; if (!bp || !bp.beats[i]) return; const b = bp.beats[i];
+    const prompt = b.image || (b.fn + ' image'); const id = 'shot-' + i;
+    const ang = i * 0.62, anchor = { x: Math.round(Math.cos(ang) * 32), z: Math.round(Math.sin(ang) * 32) };
+    notify('⚒ STAGING ' + (b.fn.toUpperCase()) + ' — "' + prompt.slice(0, 26) + '"…');
+    const forged = await __forgeAssetCode('set', prompt);
+    if (forged){ const r = window.__applyForgeFort(forged.src, anchor, id);
+        if (r && r.ok){ __filmBuilt.add('shot:' + i);
+            try { window.__broadcastFort(id, forged.src, anchor); } catch(_){}
+            try { camMode = 'FREE'; const c = new THREE.Vector3(anchor.x, 3, anchor.z);
+                camera.position.copy(c).add(new THREE.Vector3(1, 0.7, 1).normalize().multiplyScalar(26)); orbit.target.copy(c); } catch(_){}
+            try { const s = { p: camera.position.toArray().map(n=>+n.toFixed(2)), t: c.toArray().map(n=>+n.toFixed(2)), mode:'FREE', hold:1.5, travel:2.4 }; if (window.CINE) CINE.shots[i] = s; } catch(_){}
+            notify('✓ ' + b.fn.toUpperCase() + ' STAGED' + (forged.real ? ' · model' : ' · stand-in'));
+        } else notify('✗ shot forge rejected'); }
+    try { if (window.__camviz && __camviz.on) __camviz.refresh(); } catch(_){}
+    try { updateSceneGraph(); } catch(_){}
+}
+window.__stageShot = __stageShot;
 
 // ── CAMVIZ — see the cameras: frustum wedges, dolly path, verify what each sees
 // Every shot in the reel drawn as its actual view cone (fov-accurate) with a
@@ -8509,12 +8530,18 @@ function __filmSections(list){
     const bPlay = document.createElement('button'); bPlay.className = 'sg-fbtn play'; bPlay.textContent = '▶ PERFORM';
     bPlay.addEventListener('click', e => { e.stopPropagation(); try { window.TWIN && TWIN.performFilm(); } catch(_){} });
     master.append(bAll, bPlay); list.appendChild(master);
-    // section header with a GEN-ALL
-    const head = (txt, hint, kind) => { const h = document.createElement('div'); h.className = 'sg-group sg-film';
-        h.innerHTML = '<span class="sg-gname">' + txt + '</span><span class="sg-gcount">' + hint + '</span>';
+    // collapsible section header — twist ▸/▾ toggles; the shot layers start
+    // collapsed so 21 images never flood the panel. Returns {collapsed}.
+    const head = (txt, hint, kind, ckey) => {
+        const collapsed = ckey ? __filmCollapsed.has(ckey) : false;
+        const h = document.createElement('div'); h.className = 'sg-group sg-film';
+        h.innerHTML = (ckey ? '<span class="sg-gtwist">' + (collapsed ? '▸' : '▾') + '</span>' : '') +
+            '<span class="sg-gname">' + txt + '</span><span class="sg-gcount">' + hint + '</span>';
+        if (ckey) h.addEventListener('click', () => { if (__filmCollapsed.has(ckey)) __filmCollapsed.delete(ckey); else __filmCollapsed.add(ckey); updateSceneGraph(); });
         if (kind){ const g = document.createElement('button'); g.className = 'sg-fbtn'; g.textContent = 'GEN ALL';
             g.addEventListener('click', e => { e.stopPropagation(); __genSection(kind); }); h.appendChild(g); }
-        list.appendChild(h); return h; };
+        list.appendChild(h); return { el: h, collapsed };
+    };
     // a rich film row: label + editable prompt sub + GEN + open-in-builder
     const frow = (name, prompt, built, onGen, onOpen, onEdit, cls) => {
         const r = document.createElement('div'); r.className = 'sg-item sg-child sg-filmrow' + (built ? ' built' : '') + (cls ? ' ' + cls : '');
@@ -8529,13 +8556,13 @@ function __filmSections(list){
         list.appendChild(r); return r;
     };
     // CAST
-    if (bp.cast && bp.cast.length){ head('CAST', 'edit in HELLO', 'cast');
+    if (bp.cast && bp.cast.length && !head('CAST', 'edit in HELLO', 'cast', 'cast').collapsed){
         bp.cast.forEach((c, i) => frow(c.name.toUpperCase(), c.desc, __filmBuilt.has('cast:' + c.name) || !!findBot(c.name),
             () => __genCast(i),
             () => { try { window.BUS && BUS.say('play as ' + c.name, 'graph'); } catch(_){} if (window.__openRitual) window.__openRitual(); notify('EDITING ' + c.name.toUpperCase() + ' in HELLO'); },
             () => __editPrompt(v => { if (v != null) c.desc = v; return c.desc; }))); }
     // SET
-    if (bp.motifs && bp.motifs.length){ head('THE SET', 'edit in WORLD', 'set');
+    if (bp.motifs && bp.motifs.length && !head('THE SET', 'edit in WORLD', 'set', 'set').collapsed){
         bp.motifs.forEach((m, mi) => ['past','present','future'].forEach(form => {
             const id = 'motif-' + mi + '-' + form, built = __filmBuilt.has('set:' + mi + ':' + form) || !!findFort(id);
             frow((m.name + ' · ' + form).toUpperCase(), m[form] || m.name, built,
@@ -8552,14 +8579,16 @@ function __filmSections(list){
         ['past','present','future'].forEach(layer => {
             const rows = bp.beats.map((b, i) => ({ b, i })).filter(x => x.b.layer === layer);
             if (!rows.length) return;
-            head(layer.toUpperCase() + ' IMAGES', rows.length + '', null);   // no emoji, GEN-ALL below
-            const h = list.lastChild;
-            const gl = document.createElement('button'); gl.className = 'sg-fbtn'; gl.textContent = 'PROMPTS';
+            const built = rows.filter(x => __filmBuilt.has('shot:' + x.i)).length;
+            const hd = head(layer.toUpperCase() + ' IMAGES', built + '/' + rows.length, null, 'shots:' + layer);
+            const gl = document.createElement('button'); gl.className = 'sg-fbtn ghost'; gl.textContent = 'PROMPTS';
             gl.title = 'regenerate all ' + layer + ' image prompts from the seed (cascade)';
-            gl.addEventListener('click', e => { e.stopPropagation(); __genImageLayer(layer); }); h.appendChild(gl);
+            gl.addEventListener('click', e => { e.stopPropagation(); __genImageLayer(layer); }); hd.el.appendChild(gl);
+            if (hd.collapsed) return;
             rows.forEach(({ b, i }) => {
                 const cam = FNCAM[b.fn] || 'wide', subj = (b.subject || (bp.cast && bp.cast[0] && bp.cast[0].name) || 'me');
-                const r = document.createElement('div'); r.className = 'sg-item sg-child sg-filmrow sg-shot';
+                const isStaged = __filmBuilt.has('shot:' + i);
+                const r = document.createElement('div'); r.className = 'sg-item sg-child sg-filmrow sg-shot' + (isStaged ? ' built' : '');
                 const lab = document.createElement('div'); lab.className = 'sg-fl sg-1l';
                 lab.innerHTML = '<b>' + (TYPE[b.fn] || b.fn.toUpperCase()) + '</b> <i>' + cam + '</i> <span>' + (b.image || '') + '</span>';
                 lab.title = (b.image || '') + '  ·  camera ' + cam + ' on ' + subj;
@@ -8567,8 +8596,9 @@ function __filmSections(list){
                 r.appendChild(lab);
                 const ed = document.createElement('button'); ed.className = 'sg-fbtn ghost'; ed.textContent = '✎'; ed.title = 'edit this image prompt';
                 ed.addEventListener('click', e => { e.stopPropagation(); __editPrompt(v => { if (v != null) b.image = v; return b.image; }); }); r.appendChild(ed);
-                const g = document.createElement('button'); g.className = 'sg-fbtn'; g.textContent = 'GEN'; g.title = 'generate a fresh prompt for this image';
-                g.addEventListener('click', e => { e.stopPropagation(); __genImagePrompt(i); }); r.appendChild(g);
+                // GEN now ACTIVATES: forge geometry from the prompt + frame it as this shot
+                const g = document.createElement('button'); g.className = 'sg-fbtn' + (isStaged ? ' done' : ''); g.textContent = isStaged ? '↻' : 'STAGE'; g.title = 'build this image into the world from its prompt';
+                g.addEventListener('click', e => { e.stopPropagation(); __stageShot(i); }); r.appendChild(g);
                 list.appendChild(r);
             });
         });
