@@ -1829,7 +1829,7 @@ body.cine-rolling #cmd-fab, body.cine-rolling #ball-tracker, body.cine-rolling #
   if(!fab||!modal) return;
   const open=()=>{ modal.classList.add('show'); setTimeout(()=>{ try{ input.focus(); }catch(_){} },60); };
   const close=()=>modal.classList.remove('show');
-  const run=()=>{ const v=input.value; if(!v.trim()) return; const r=(window.__runCommand?window.__runCommand(v):'loading…'); if(status) status.textContent=r; input.value=''; };
+  const run=()=>{ const v=input.value; if(!v.trim()) return; const r=(window.BUS?window.BUS.say(v,'director'):(window.__runCommand?window.__runCommand(v):'loading…')); if(status) status.textContent=r; input.value=''; };
   window.__openCmd=open;
   fab.addEventListener('click',open);
   // SAY now lives in the right-side menu rail (PLAY › SAY › DIRECT) like the other buttons
@@ -10948,6 +10948,13 @@ const CART = (() => {
         // bots: body + position (minds are prompts the bus will own; not yet serialized)
         try { (localBots || []).forEach((b, i) => { if (doc.entities.length >= 64 || !b || !b.car) return;
             doc.entities.push({ kind: 'bot', id: kebab((b.name || 'bot-' + i)), at: { x: clampA(b.car.position.x), z: clampA(b.car.position.z) }, rig: { spec: b.spec || {} } }); }); } catch(_){}
+        // bus-placed entities: targets/cups and powerups round-trip
+        try { TARGETS.forEach((t, i) => { if (doc.entities.length >= 64) return;
+            doc.entities.push({ kind: 'target', id: 'target-' + (i + 1), at: { x: clampA(t.pos.x), z: clampA(t.pos.z) }, radius: Math.max(0.5, Math.min(30, +t.r || 3)), cup: !!t.cup }); }); } catch(_){}
+        try { POWERUPS.forEach(p => { if (doc.entities.length >= 64) return;
+            doc.entities.push({ kind: 'powerup', id: kebab(p.id), at: { x: clampA(p.pos.x), z: clampA(p.pos.z) }, effect: p.effect, respawn: Math.max(0, Math.min(600, p.respawn || 0)) }); }); } catch(_){}
+        // cartridge chips survive save/load cycles
+        try { if (CART._chips && CART._chips.length) doc.ui = { chips: CART._chips }; } catch(_){}
         // the reel (schema shape: {shots}; CINE.serialize wraps as {v, shots})
         try { const c = window.CINE && CINE.serialize(); if (c && Array.isArray(c.shots) && c.shots.length) doc.cine = { shots: c.shots.slice(0, 24) }; } catch(_){}
         return doc;
@@ -10990,9 +10997,20 @@ const CART = (() => {
                     if (fr && fr.ok) { did.push('fort:' + e.id); try { if (typeof window.__broadcastFort === 'function') window.__broadcastFort(e.id, e.code, e.anchor); } catch(_){} }
                 } else if (e.kind === 'fort' && Array.isArray(e.objects) && e.objects.length) {
                     applyState(getSerializedState().concat(e.objects)); did.push('fort:' + e.id);
-                } else skipped++;   // bots/powerups/goals install with their game mode — the command bus's job
+                } else if (e.kind === 'powerup' && e.at) {
+                    placePowerup(new THREE.Vector3(e.at.x || 0, 0, e.at.z || 0), e.effect, e.respawn || 0, e.id); did.push('powerup:' + e.effect);
+                } else if ((e.kind === 'target' || e.kind === 'goal') && e.at) {
+                    placeTarget(e.cup ? 'cup' : 'goal', new THREE.Vector3(e.at.x || 0, 0, e.at.z || 0)); did.push(e.cup ? 'cup' : 'goal');
+                } else if (e.kind === 'ball' && e.at) {
+                    try { B.pos.set(e.at.x || 0, 5, e.at.z || 0); B.vel.set(0, -2, 0); B.active = true; did.push('ball'); } catch(_){ skipped++; }
+                } else if (e.kind === 'bot' && e.at) {
+                    const b = deployBot({ team: e.team === 'ally' ? 'ally' : 'hostile' });
+                    if (b) { try { if (b.phys && b.phys.pos) b.phys.pos.set(e.at.x || 0, 1, e.at.z || 0); if (b.car) b.car.position.set(e.at.x || 0, 1, e.at.z || 0); } catch(_){} did.push('bot:' + e.id); }
+                    else skipped++;
+                } else skipped++;   // flags install with their game mode (flag-run)
             } catch (err) { console.warn('[cart] entity', e && e.id, err); skipped++; }
         });
+        try { if (doc.ui && Array.isArray(doc.ui.chips) && window.BUS) { BUS.chips(doc.ui.chips); CART._chips = doc.ui.chips; did.push('chips:' + doc.ui.chips.length); } } catch(_){}
         try { if (doc.cine && window.CINE && CINE.restore) { CINE.restore({ v: 1, shots: doc.cine.shots }); did.push('reel:' + doc.cine.shots.length); } } catch(_){}
         notify('CARTRIDGE LOADED · ' + (did.slice(0, 4).join(' · ') || 'empty') + (skipped ? ' · ' + skipped + ' awaiting modes' : ''));
         if (window.AICON) AICON.log('CART load · ' + did.join(' · ') + (skipped ? ' · skipped ' + skipped : ''), 'ok');
@@ -15370,8 +15388,8 @@ function targetPos(text){
     // default: ~16 units ahead of the player
     try{ const fwd=new THREE.Vector3(Math.sin(P.yaw),0,Math.cos(P.yaw)); return P.pos.clone().addScaledVector(fwd,16).setY(0); }catch(_){ return new THREE.Vector3(0,0,-20); }
 }
-function placeTarget(text){
-    const pos=targetPos(text), cup=/cup|hoop|net|basket|bucket/.test((text||'').toLowerCase());
+function placeTarget(text, posOverride){
+    const pos=posOverride||targetPos(text), cup=/cup|hoop|net|basket|bucket/.test((text||'').toLowerCase());
     const g=new THREE.Group(); const R=cup?2.4:3.6;
     const ring=new THREE.Mesh(new THREE.TorusGeometry(R,0.32,10,26), new THREE.MeshBasicMaterial({color:cup?0xffd23f:0x19e6c8})); ring.rotation.x=Math.PI/2; ring.position.y=cup?2.4:0.12; g.add(ring);
     if(cup){ const wall=new THREE.Mesh(new THREE.CylinderGeometry(R,R,2.4,20,1,true), new THREE.MeshBasicMaterial({color:0xffd23f,transparent:true,opacity:0.22,side:THREE.DoubleSide})); wall.position.y=1.2; g.add(wall); }
@@ -15424,7 +15442,22 @@ function runCommand(text){
         }
         if(/\bclear\b|\bremove\b|\bdelete\b/.test(t)){
             if(/bot/.test(t)){ const n=(typeof localBots!=='undefined')?localBots.length:0; if(typeof localBots!=='undefined') localBots.slice().forEach(b=>removeBot(b.id)); return 'cleared '+n+' bots'; }
+            if(/power/.test(t)){ const n=POWERUPS.length; clearPowerups(); return 'cleared '+n+' powerups'; }
             if(/goal|cup|target/.test(t)){ const n=TARGETS.length; clearTargets(); return 'cleared '+n+' targets'; }
+        }
+        // FORTIFY: order every idle bot to build; conjure an ally if the field is empty
+        if(/\bfortify\b|build (a |the |me a )?fort|dig in/.test(t)){
+            if(typeof localBots==='undefined') return 'bots offline';
+            if(!localBots.length){ if(!deployBot({team:'ally'})) return 'no bots available'; }
+            let ordered=0;
+            localBots.forEach(b=>{ if(b && !b.destroyed && !b.planning && !b.building){ orderBotFort(b, true); if(b.planning) ordered++; } });
+            return ordered? (ordered+' bot'+(ordered>1?'s':'')+' fortifying') : 'bots lack materials — smash arena parts to gather';
+        }
+        // POWERUP: a pickup entity, placed like targets ("a repair powerup here, respawn 20")
+        if(/power.?up|overdrive (pad|token|pickup)|repair (kit|pad|pickup)|\bpickup\b/.test(t)){
+            const eff=/repair|heal|fix/.test(t)?'repair':(/shield/.test(t)?'shield':(/ammo/.test(t)?'ammo':'overdrive'));
+            const rm=t.match(/respawn\s+(\d+)/); const n=placePowerup(targetPos(t), eff, rm?+rm[1]:0);
+            return eff+' powerup placed — '+n+' active';
         }
         if(/bot|enemy|marauder|warden|opponent/.test(t)){
             const numM=t.match(/\b(\d+)\b/); let n=numM?parseInt(numM[1],10):(/\bsome\b|\bfew\b/.test(t)?3:1); n=Math.max(1,Math.min(8,n));
@@ -15433,10 +15466,85 @@ function runCommand(text){
             return s? (s+' '+team+' bot'+(s>1?'s':'')+' deployed') : ('bot limit is '+BOT_MAX);
         }
         if(/goal|cup|target|net|hoop|basket|bucket/.test(t)){ const n=placeTarget(t); return 'placed — '+n+' target'+(n>1?'s':'')+' active'; }
-        return 'try: "spawn 3 bots" · "a goal here" · "shot here" · "action" · "record" · "cut" · "export the world" · "export my rig"';
+        return 'try: "spawn 3 bots" · "a goal here" · "a powerup here" · "fortify" · "shot here" · "action" · "cut" · "export the world"';
     }catch(e){ console.warn('[cmd]',e); return 'failed: '+(e.message||e); }
 }
 window.__runCommand = runCommand;
+
+// ── POWERUPS — pickups as entities (cartridge kind 'powerup') ────────────────
+// A spinning token; drive through it and the effect fires. overdrive = the CTF
+// burst (playerBurst) granted directly; repair = full integrity. respawn>0
+// brings it back after N seconds, else it's one-shot.
+const POWERUPS = [];
+const PU_COLORS = { overdrive: 0xffd23f, repair: 0x00ff88, shield: 0x3b82f6, ammo: 0xff8a3d };
+function placePowerup(pos, effect = 'overdrive', respawn = 0, id = null) {
+    effect = PU_COLORS[effect] ? effect : 'overdrive';
+    const col = PU_COLORS[effect];
+    const g = new THREE.Group();
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(1.5, 0.18, 10, 24), new THREE.MeshBasicMaterial({ color: col }));
+    ring.rotation.x = Math.PI / 2; ring.position.y = 1.4; g.add(ring);
+    const core = new THREE.Mesh(new THREE.IcosahedronGeometry(0.55, 0), new THREE.MeshBasicMaterial({ color: col, wireframe: true }));
+    core.position.y = 1.4; g.add(core);
+    g.position.copy(pos).setY(0);
+    g.userData = { name: 'powerup:' + effect, type: 'powerup' };
+    scene.add(g);
+    POWERUPS.push({ mesh: g, pos: g.position.clone(), effect, respawn: +respawn || 0, id: id || ('pu' + Date.now().toString(36) + POWERUPS.length), hiddenUntil: 0 });
+    try { if (typeof spark === 'function') spark(g.position.clone().setY(1), col, 8, 20, 8, 0.6); } catch(_){}
+    return POWERUPS.length;
+}
+function clearPowerups(){ POWERUPS.forEach(p => { try { scene.remove(p.mesh); } catch(_){} }); POWERUPS.length = 0; }
+function firePowerup(effect) {
+    if (effect === 'repair') { localCarIntegrity = CAR_MAX_INTEGRITY; localCarDestroyed = false; try { setCarDamageVisual(playerCar, localCarIntegrity, false); } catch(_){} notify('⛨ REPAIRED'); }
+    else { playerBurst = { until: performance.now() + OD_BURST_MS }; notify('⚡ OVERDRIVE'); shake = Math.max(shake, 0.4); }
+    try { SFX.complete && SFX.complete(); } catch(_){}
+}
+function tickPowerups() {
+    if (!POWERUPS.length) return;
+    const nowp = performance.now();
+    for (let i = POWERUPS.length - 1; i >= 0; i--) {
+        const p = POWERUPS[i];
+        if (p.hiddenUntil) { if (nowp >= p.hiddenUntil) { p.hiddenUntil = 0; p.mesh.visible = true; } else continue; }
+        p.mesh.rotation.y = nowp * 0.002; p.mesh.children[1] && (p.mesh.children[1].rotation.x = nowp * 0.003);
+        const d = Math.hypot(P.pos.x - p.pos.x, P.pos.z - p.pos.z);
+        if (d < 3) {
+            firePowerup(p.effect);
+            try { if (typeof spark === 'function') spark(p.pos.clone().setY(1.4), PU_COLORS[p.effect], 14, 30, 12, 0.8); } catch(_){}
+            if (p.respawn > 0) { p.hiddenUntil = nowp + p.respawn * 1000; p.mesh.visible = false; }
+            else { scene.remove(p.mesh); POWERUPS.splice(i, 1); }
+        }
+    }
+}
+
+// ── BUS — one verb surface for SAY, the director, chips, and cartridges ─────
+// Every prompt surface emits utterances here; runCommand is the parser core;
+// registered verbs are checked first so cartridges/modes can extend the game
+// without touching the parser. Chips are just canned utterances.
+const BUS = (() => {
+    const custom = [];   // [{test:RegExp|fn, run(text)->string, help}]
+    function say(text, source) {
+        const t = String(text || '').trim(); if (!t) return 'say something';
+        for (const v of custom) {
+            try { const hit = (v.test instanceof RegExp) ? v.test.test(t.toLowerCase()) : v.test(t);
+                if (hit) return String(v.run(t) || 'done'); } catch (e) { console.warn('[bus]', e); }
+        }
+        return runCommand(t);
+    }
+    function register(verb) { if (verb && verb.test && verb.run) custom.push(verb); return custom.length; }
+    function chips(list) {   // render cartridge ui.chips into the director's chip row
+        const row = document.querySelector('#cmd-modal .cmd-ex'); if (!row || !Array.isArray(list)) return 0;
+        row.querySelectorAll('.cmd-chip[data-cart]').forEach(c => c.remove());
+        list.slice(0, 8).forEach(c => {
+            if (!c || !c.label || !c.say) return;
+            const b = document.createElement('button');
+            b.type = 'button'; b.className = 'cmd-chip'; b.dataset.cart = '1'; b.textContent = c.label;
+            b.addEventListener('click', () => { const st = document.getElementById('cmd-status'); const r = say(c.say, 'chip'); if (st) st.textContent = r; });
+            row.appendChild(b);
+        });
+        return list.length;
+    }
+    return { say, register, chips, placePowerup, placeTarget, clearPowerups };
+})();
+window.BUS = BUS;
 
 let _frameErr = null;
 function frame(now) {
@@ -15520,6 +15628,7 @@ function frame(now) {
         tickParis(dt);              // PARIS: deterministic incident playback
         if (GAME.mode==='sneak') ProceduralRhetoric.update(dt, time, now);   // SNEAK: agents, whistles, decoy pulses, watcher selection
         tickTargets();              // LANGUAGE targets: ball-into-goal/cup hits
+        tickPowerups();             // BUS powerups: drive-through pickups (overdrive/repair)
         updateWrecks(now);
         runCommander(now);
 
@@ -15919,7 +16028,7 @@ body.agent-line-open #action-zone,body.agent-line-open #drivezone,body.agent-lin
               const cmdInput = document.getElementById('cmd-input');
               if (cmdInput) {
                   cmdInput.value = text;
-                  const r = (window.__runCommand ? window.__runCommand(text) : 'loading…');
+                  const r = (window.BUS ? window.BUS.say(text, 'say') : (window.__runCommand ? window.__runCommand(text) : 'loading…'));
                   const statusEl = document.getElementById('cmd-status');
                   if (statusEl) statusEl.textContent = r;
                   cmdInput.value = '';
