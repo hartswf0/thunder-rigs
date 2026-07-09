@@ -14329,6 +14329,17 @@ const ProceduralRhetoric = (() => {
         else if(spec.mode==='freeze'){obj.userData.animType='none';}
         recountAnimated(); sceneDirty=true; if(typeof onLocalArenaChanged==='function') onLocalArenaChanged(); notify('BEHAVIOR COMMITTED'); say('Motion becomes rhetorical when it gives an object a reason to respond.',3500);
     }
+    // BUS access: give ANY object motion from language — no selection, no modal.
+    // The command bus (and twin beats) name things; this animates them.
+    window.__applyMotion = function(obj, prompt){
+        if (!obj || !obj.userData) return false;
+        const spec = parseBehavior(prompt, null);
+        obj.userData.behaviorSpec = spec; obj.userData.basePos = obj.position.clone(); obj.userData.baseRot = obj.rotation.clone();
+        if (spec.mode==='orbit'||spec.mode==='patrol'){ obj.userData.animType='oscillate'; obj.userData.animAxis='y'; obj.userData.animSpeed=spec.speed; obj.userData.animRange=spec.range*.25; }
+        else if (spec.mode==='freeze'){ obj.userData.animType='none'; }
+        recountAnimated(); sceneDirty = true; if (typeof onLocalArenaChanged==='function') onLocalArenaChanged();
+        return spec.mode;
+    };
     function updateWorldBehaviors(dt,time,now){
         selectableObjects.forEach(obj=>{
             const b=obj.userData.behaviorSpec;if(!b)return;
@@ -15487,6 +15498,24 @@ function runCommand(text){
             const rm=t.match(/respawn\s+(\d+)/); const n=placePowerup(targetPos(t), eff, rm?+rm[1]:0);
             return eff+' powerup placed — '+n+' active';
         }
+        // MOTION: choreograph what's already built — "the tower orbits slowly",
+        // "everything floats", "the ramp patrols". Named words match object
+        // names/labels/types; falls back to the selected object.
+        if(/\b(orbit|orbits|patrol|patrols|guard|guards|flee|flees|mimic|freeze|freezes|float|floats|bob|bobs|spin|spins|dance|dances|oscillate|animate)\b/.test(t)){
+            if (typeof window.__applyMotion !== 'function') return 'motion offline';
+            const objs = (typeof selectableObjects !== 'undefined' ? selectableObjects : []).filter(o => o && o.userData && !o.userData.isAgent);
+            let hits = [];
+            if (/everything|all (the )?(world|structures|objects|towers|buildings)/.test(t)) hits = objs.filter(o => o.userData._ritualWorld).slice(0, 40);
+            else {
+                const stop = /^(the|and|near|around|make|let|slow|slowly|fast|quick|orbit|orbits|patrol|patrols|guard|guards|flee|flees|mimic|freeze|freezes|float|floats|bob|bobs|spin|spins|dance|dances|oscillate|animate|wide|tight|thunder|whistle|when|with)$/;
+                const words = t.split(/[^a-z0-9]+/).filter(w => w.length > 2 && !stop.test(w));
+                hits = objs.filter(o => { const s = ((o.userData.name || '') + ' ' + (o.userData.label || '') + ' ' + (o.userData.type || '')).toLowerCase(); return words.some(w => s.includes(w)); }).slice(0, 20);
+                if (!hits.length && sceneState.selectedId) hits = objs.filter(o => o.userData.id === sceneState.selectedId);
+            }
+            if (!hits.length) return 'name a thing to move — "the tower orbits" (or select one first)';
+            let mode = ''; hits.forEach(o => { mode = window.__applyMotion(o, t) || mode; });
+            return hits.length + ' object' + (hits.length > 1 ? 's' : '') + ' set to ' + mode;
+        }
         if(/bot|enemy|marauder|warden|opponent/.test(t)){
             const numM=t.match(/\b(\d+)\b/); let n=numM?parseInt(numM[1],10):(/\bsome\b|\bfew\b/.test(t)?3:1); n=Math.max(1,Math.min(8,n));
             const team=/(ally|friend|blue|help|team)/.test(t)?'ally':'hostile';
@@ -15760,32 +15789,76 @@ const TWIN = (() => {
     // deterministic clock while CINE drives one camera shot per beat, subjects
     // bound live. "Prompt a house, prompt a car, prompt motions" — on beat.
     let perf = null;   // { beats, t0, fired:Set, name }
+    function goldenFor(b) {
+        try {
+            if (b.kind === 'world' && window.GOLDEN_WORLDS) { const g = GOLDEN_WORLDS.pick(b.prompt || ''); return { code: g.entry.code, name: g.entry.name || g.id }; }
+            if (b.kind === 'fort' && window.GOLDEN_DRAFTS) { const g = GOLDEN_DRAFTS.pick(b.prompt || ''); return { code: g.entry.code, name: g.entry.name || g.id }; }
+            if (b.kind === 'rig' && window.GOLDEN) { const g = GOLDEN.pick(b.prompt || ''); return { code: g.entry.code, name: g.entry.name || g.id }; }
+            if (b.kind === 'mechanic') return { code: GOLDEN_MECHANIC.code, name: 'ring-run' };
+        } catch (e) { console.warn('[twin golden]', b.kind, e); }
+        return null;
+    }
     function bake(doc) {
         (doc.beats || []).forEach(b => {
-            if (!b || b.code || b.kind === 'say' || b.kind === 'cam') return;
-            try {
-                let g = null;
-                if (b.kind === 'world' && window.GOLDEN_WORLDS) g = GOLDEN_WORLDS.pick(b.prompt || '');
-                else if (b.kind === 'fort' && window.GOLDEN_DRAFTS) g = GOLDEN_DRAFTS.pick(b.prompt || '');
-                else if (b.kind === 'rig' && window.GOLDEN) g = GOLDEN.pick(b.prompt || '');
-                else if (b.kind === 'mechanic') { b.code = GOLDEN_MECHANIC.code; b.baked = 'golden:ring-run'; return; }
-                if (g && g.entry && g.entry.code) { b.code = g.entry.code; b.baked = 'golden:' + (g.entry.name || g.id); }
-            } catch (e) { console.warn('[twin bake]', b.kind, e); }
+            if (!b || b.kind === 'say' || b.kind === 'motion' || b.kind === 'cam') return;
+            const g = goldenFor(b);
+            if (g && !b.fallbackCode) b.fallbackCode = g.code;   // every beat keeps a floor
+            if (!b.code && g) { b.code = g.code; b.baked = 'golden:' + g.name; }
         });
         return doc;
     }
+    // AI BAKE — forge every beat FRESH from its prompt (the model writes each
+    // beat's code; the golden stays aboard as the per-beat floor). Same output
+    // contracts as the live forges, compacted; syntax-gated at bake, admission-
+    // gated at perform.
+    const BAKE_CONTRACTS = {
+        world: 'You are a master environment artist for THUNDER RIGS. Reply with ONLY one JavaScript function, no fences, no prose:\nfunction build(w, WG, THREE){ ... return w; }\nFIRST call WG.atmosphere({sky:"#hex",fog:"#hex",ground:"#hex"}) then WG.thesis({landform,topology}). Build 12-24 landmarks with WG.box/cyl/cone/sphere/torus + materials WG.flat(hex,{rough,metal})/WG.lit(hex,i); WG.put(mesh,x,y,z,ry) places, WG.solid(mesh,w,h,d) makes it collide, WG.ramp/bank/crest/mound/ridge/deck are drivable. Stay in x,z [-80,80]; keep a 14-unit clear circle at (0,0) and (0,15); under 500 meshes; WG.rand(seed) for randomness.',
+        fort: 'You are a fortification builder for THUNDER RIGS. Reply with ONLY one JavaScript function, no fences, no prose:\nfunction build(w, WG, THREE){ ... return w; }\nBuild ONE focal structure near the origin (it is anchored elsewhere later): WG.box/cyl/cone/sphere/torus + WG.flat/WG.lit materials; WG.put places, WG.solid makes it collide; under 60 meshes; every part within 12 units of the origin; WG.rand(seed) for randomness.',
+        rig: 'You are a master vehicle artist for THUNDER RIGS. Reply with ONLY one JavaScript function, no fences, no prose:\nfunction build(g, VG, THREE){ ... }\nUse VG: box(w,h,d,m) cyl(r1,r2,h,m,seg) cone sphere ico torus + wheels knobbyWheel(r,w,hub)/slickWheel + materials paint(hex,{rough,metal}) matte metalMat goldMat emiss(hex,i) makeGlass + headlight(hex) glow(hex) contactShadow(w,d) figure(skin,cloth,opts). Helpers INSIDE build. A drivable car-scale rig (~4x2x2 units), wheels on the ground, under 200 meshes.',
+        mechanic: null,   // filled below from the live contract
+    };
+    async function bakeAI(doc, onBeat) {
+        bake(doc);   // goldens as the floor first
+        const beats = (doc.beats || []).filter(b => b && b.prompt && (b.kind in BAKE_CONTRACTS));
+        let model = 0, golden = 0;
+        for (const b of beats) {
+            const sys = b.kind === 'mechanic'
+                ? null   // mechanics go through aiForgeMechanic's richer contract at fire time; keep golden here
+                : BAKE_CONTRACTS[b.kind] + '\nEXAMPLE (imitate FORMAT and craft, never subject):\n' + (b.fallbackCode || '') + '\nDesign for: "' + String(b.prompt).slice(0, 160) + '"';
+            if (!sys) { golden++; continue; }
+            try {
+                const reply = await requestAIText(String(b.prompt), sys, null, 4000, { task: 'twin-bake' });
+                const src = FORGE.sanitize(String(reply || ''));
+                const scan = FORGE.jsScan(src);
+                if (/function\s+build\s*\(/.test(src) && scan.brace === 0 && scan.paren === 0 && src.length > 60) {
+                    b.code = src; b.baked = 'model'; model++;
+                } else { golden++; }
+            } catch (e) { console.warn('[twin bakeAI]', b.kind, e && e.message); golden++; }
+            if (onBeat) try { onBeat(b, model + golden, beats.length); } catch(_){}
+        }
+        return { total: beats.length, model, golden };
+    }
     function fireBeat(b, i) {
         try {
-            if (b.kind === 'say' && b.prompt) return BUS.say(b.prompt, 'twin');
-            if (b.kind === 'world' && b.code) return window.__applyForgeWorld(b.code);
+            if ((b.kind === 'say' || b.kind === 'motion') && b.prompt) return BUS.say(b.prompt, 'twin');
+            if (b.kind === 'world' && b.code) {
+                const r = window.__applyForgeWorld(b.code);
+                if ((!r || !r.ok) && b.fallbackCode && b.code !== b.fallbackCode) return window.__applyForgeWorld(b.fallbackCode);
+                return r;
+            }
             if (b.kind === 'fort' && b.code) {
                 const id = b.id || ('twin-fort-' + i);
-                const r = window.__applyForgeFort(b.code, b.anchor || { x: 0, z: -20 }, id);
-                try { window.__broadcastFort(id, b.code, b.anchor || { x: 0, z: -20 }); } catch(_){}
+                let r = window.__applyForgeFort(b.code, b.anchor || { x: 0, z: -20 }, id);
+                if ((!r || !r.ok) && b.fallbackCode && b.code !== b.fallbackCode) r = window.__applyForgeFort(b.fallbackCode, b.anchor || { x: 0, z: -20 }, id);
+                if (r && r.ok) { try { window.__broadcastFort(id, (b.code || b.fallbackCode), b.anchor || { x: 0, z: -20 }); } catch(_){} }
                 return r;
             }
             if (b.kind === 'rig' && b.code) return applyLoadout(Object.assign({}, myLoadout, { vcode: b.code }));
-            if (b.kind === 'mechanic' && b.code) return MODES.install(b.code, (b.prompt || 'twin-mode').slice(0, 24));
+            if (b.kind === 'mechanic') {
+                const r = MODES.install(b.code || b.fallbackCode, (b.prompt || 'twin-mode').slice(0, 24));
+                if (!r.ok && b.fallbackCode && b.code !== b.fallbackCode) return MODES.install(b.fallbackCode, 'twin-mode');
+                return r;
+            }
         } catch (e) { console.warn('[twin beat]', i, e); }
     }
     function performTwin(doc) {
@@ -15830,7 +15903,13 @@ const TWIN = (() => {
         }
         if (perf.fired.size === perf.beats.length && t > (perf.beats[perf.beats.length - 1].at || 0) + 8) { notify('TWIN COMPLETE'); perf = null; }
     }
-    return { showFilm, stop, performTwin, stopPerf, bake, tick: tickAll,
+    async function performAI(doc, onBeat) {
+        notify('AI BAKE — FORGING EVERY BEAT…');
+        const s = await bakeAI(doc, onBeat);
+        notify('BAKE DONE — ' + s.model + ' MODEL · ' + s.golden + ' GOLDEN');
+        return performTwin(doc);
+    }
+    return { showFilm, stop, performTwin, performAI, stopPerf, bake, bakeAI, tick: tickAll,
         get playing() { return !!show || !!perf; }, get frame() { return show ? show.idx : -1; },
         get beat() { return perf ? perf.fired.size : -1; } };
 })();

@@ -17,6 +17,8 @@
       "cam": { "p": [0, 14, 30], "subject": "player", "travel": 3 } },
     { "at": 28, "kind": "say", "prompt": "an overdrive pad at center" },
     { "at": 32, "kind": "say", "prompt": "a cup at center",
-      "cam": { "p": [-18, 6, 18], "t": [0, 2, 0], "travel": 4 } }
+      "cam": { "p": [-18, 6, 18], "t": [0, 2, 0], "travel": 4 } },
+    { "at": 36, "kind": "motion", "prompt": "everything floats slowly",
+      "cam": { "p": [0, 30, 44], "t": [0, 6, 0], "travel": 5 } }
   ]
 }
