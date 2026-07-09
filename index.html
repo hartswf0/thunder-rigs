@@ -15902,6 +15902,16 @@ const TWIN = (() => {
     function fireBeat(b, i) {
         try {
             if ((b.kind === 'say' || b.kind === 'motion') && b.prompt) return BUS.say(b.prompt, 'twin');
+            if (b.kind === 'sculpt' && Array.isArray(b.commands)) {
+                const g = sculpt(b.commands);
+                const a = b.anchor || { x: 0, z: -22 };
+                g.position.set(a.x || 0, 0, a.z || 0);
+                g.rotation.y = Math.atan2(-(a.x || 0), -(a.z || 0));   // pane faces the arena center
+                scene.add(g);
+                if (perf) (perf.sculpts = perf.sculpts || []).push(g);
+                try { window.__riseWorld && window.__riseWorld(g, a); } catch(_){}
+                return { ok: true, meshes: g.children.length };
+            }
             if (b.kind === 'world' && b.code) {
                 const r = window.__applyForgeWorld(b.code);
                 if ((!r || !r.ok) && b.fallbackCode && b.code !== b.fallbackCode) return window.__applyForgeWorld(b.fallbackCode);
@@ -15947,6 +15957,7 @@ const TWIN = (() => {
     }
     function stopPerf() {
         if (!perf) return false;
+        try { (perf.sculpts || []).forEach(g => { scene.remove(g); g.traverse(o => { try { o.geometry && o.geometry.dispose(); o.material && o.material.dispose && o.material.dispose(); } catch(_){} }); }); } catch(_){}
         perf = null;
         try { window.CINE && CINE.stopPlay && CINE.stopPlay(true); } catch(_){}
         return true;
@@ -16011,9 +16022,48 @@ const TWIN = (() => {
             const dom = (V >= H && V >= D) ? 'vertical' : (D >= H ? 'diagonal' : 'horizontal');
             const change = diffs.slice(a, b).reduce((x, d2) => x + d2, 0) / seg.length;
             const pts = seg.reduce((x, f) => x + f.pts, 0) / seg.length;
-            sections.push({ at: +(a / fps).toFixed(1), dur: +((b - a) / fps).toFixed(1), ink: Math.round(ink), change: +change.toFixed(2), dom, drift: +(F[Math.min(b - 1, F.length - 1)].cx - F[a].cx).toFixed(1), pts: Math.round(pts), energy: +(Math.min(1, ink / 900) * 0.5 + Math.min(1, change / 0.6) * 0.5).toFixed(2) });
+            let kf = a; for (let k = a; k < b; k++) if (F[k].ink > F[kf].ink) kf = k;   // the section's densest drawing
+            sections.push({ at: +(a / fps).toFixed(1), dur: +((b - a) / fps).toFixed(1), ink: Math.round(ink), change: +change.toFixed(2), dom, drift: +(F[Math.min(b - 1, F.length - 1)].cx - F[a].cx).toFixed(1), pts: Math.round(pts), energy: +(Math.min(1, ink / 900) * 0.5 + Math.min(1, change / 0.6) * 0.5).toFixed(2), kfFrame: kf, kfCommands: frames[kf] });
         }
         return { fps, dur: +(frames.length / fps).toFixed(1), frames: frames.length, sections, name: String(doc.root || 'film').slice(0, 20) };
+    }
+    // ── SCULPT — the film's OWN drawings as 3D geometry ──────────────────────
+    // A frame's command stream becomes a standing light sculpture: every LIN is
+    // a glowing beam (film XY -> a vertical pane in world XZ+Y), every PNT a
+    // voxel in one InstancedMesh. Not a screen, not a stand-in: THE drawing,
+    // extruded into the arena.
+    function sculpt(cmds, opts = {}) {
+        const W = opts.width || 24, SW = W / 128, SH = (W * 0.75) / 96;   // film 128x96 -> pane W x 0.75W
+        const mapX = x => (x - 64) * SW, mapY = y => Math.max(0.2, (96 - y) * SH);
+        const g = new THREE.Group();
+        const beamMat = {};
+        const matFor = v => { v = Math.max(0, Math.min(7, +v || 0)); if (!beamMat[v]) { const b = Math.round(255 * (7 - v) / 7); beamMat[v] = new THREE.MeshBasicMaterial({ color: (Math.round(b * 0.45) << 16) | (b << 8) | Math.round(b * 0.85) }); } return beamMat[v]; };
+        let beams = 0; const pts = [];
+        for (const c of cmds) {
+            const p = c.split(' ');
+            if (p[0] === 'LIN' && beams < 90) {
+                const x1 = mapX(+p[1]), y1 = mapY(+p[2]), x2 = mapX(+p[3]), y2 = mapY(+p[4]);
+                const L = Math.hypot(x2 - x1, y2 - y1); if (L < 0.05) continue;
+                const beam = new THREE.Mesh(new THREE.BoxGeometry(L, 0.22, 0.22), matFor(p[5]));
+                beam.position.set((x1 + x2) / 2, (y1 + y2) / 2, 0);
+                beam.rotation.z = Math.atan2(y2 - y1, x2 - x1);
+                g.add(beam); beams++;
+            } else if (p[0] === 'PNT') {
+                pts.push([mapX(+p[1]), mapY(+p[2]), Math.max(0, Math.min(7, +(p[5]) || 0))]);
+            }
+        }
+        if (pts.length) {
+            const inst = new THREE.InstancedMesh(new THREE.BoxGeometry(SW * 1.4, SH * 1.4, 0.22), new THREE.MeshBasicMaterial(), Math.min(pts.length, 600));
+            const m4 = new THREE.Matrix4(); const col3 = new THREE.Color();
+            pts.slice(0, 600).forEach((pt, i) => {
+                m4.setPosition(pt[0], pt[1], 0); inst.setMatrixAt(i, m4);
+                const b = (7 - pt[2]) / 7; col3.setRGB(b * 0.45, b, b * 0.85); inst.setColorAt(i, col3);
+            });
+            inst.instanceMatrix.needsUpdate = true; if (inst.instanceColor) inst.instanceColor.needsUpdate = true;
+            g.add(inst);
+        }
+        g.userData = { name: 'twin-sculpt', type: 'twin-sculpt', _twinSculpt: true };
+        return g;
     }
     // the deterministic poet: features -> prompt words (also the AI's few-shot)
     function poet(sec, role) {
@@ -16032,14 +16082,20 @@ const TWIN = (() => {
         const A = doc.sections ? doc : analyze(doc, opts);
         const beats = [];
         const ring = i => { const a = i * 1.1 + 0.6; return [Math.round(Math.cos(a) * 34), 6 + (i % 3) * 4, Math.round(Math.sin(a) * 34)]; };
+        const strip = s => { const r = { ...s }; delete r.kfCommands; return r; };   // why = features, not bulk
         A.sections.forEach((s, i) => {
             const cam = { p: ring(i), t: [0, 3, 0], travel: Math.max(1.5, Math.min(6, 3 / Math.max(0.15, s.change))) };
-            if (i === 0) { beats.push({ at: 0, kind: 'world', prompt: poet(s, 'world'), why: s, cam }); return; }
-            if (i === 1) { beats.push({ at: s.at, kind: 'rig', prompt: poet(s, 'rig'), why: s, cam: { ...cam, subject: 'player' } }); return; }
-            const roll = i % 3;
-            if (roll === 2) beats.push({ at: s.at, kind: 'fort', prompt: poet(s, 'fort'), why: s, anchor: { x: s.drift >= 0 ? 24 : -24, z: -14 - (i * 7) % 28 }, cam });
-            else if (roll === 0) beats.push({ at: s.at, kind: 'motion', prompt: poet(s, 'motion'), why: s, cam });
-            else beats.push({ at: s.at, kind: 'say', prompt: s.energy > 0.5 ? 'an overdrive pad here' : 'a cup at center', why: s, cam: { ...cam, subject: 'player' } });
+            const ang = i * 1.1 + 0.6;   // sculpture ring sits INSIDE the camera ring
+            const anchor = { x: Math.round(Math.cos(ang) * 22), z: Math.round(Math.sin(ang) * 22) };
+            if (i === 0) beats.push({ at: 0, kind: 'world', prompt: poet(s, 'world'), why: strip(s), cam });
+            if (i === 1) beats.push({ at: s.at, kind: 'rig', prompt: poet(s, 'rig'), why: strip(s), cam: { ...cam, subject: 'player' } });
+            // THE FILM'S OWN GEOMETRY: this section's densest drawing stands in the arena
+            if (Array.isArray(s.kfCommands) && s.kfCommands.length > 1)
+                beats.push({ at: +(s.at + (i === 0 ? 2 : 0.5)).toFixed(1), kind: 'sculpt',
+                    prompt: 'frame ' + s.kfFrame + ' — the drawing itself, standing',
+                    commands: s.kfCommands, anchor, why: strip(s), cam: i === 0 ? undefined : cam });
+            if (i > 1 && s.energy > 0.5) beats.push({ at: +(s.at + 1.5).toFixed(1), kind: 'say', prompt: 'an overdrive pad here', why: strip(s) });
+            if (i > 1 && s.change > 0.4) beats.push({ at: +(s.at + 2.5).toFixed(1), kind: 'motion', prompt: poet(s, 'motion'), why: strip(s) });
         });
         return { format: 'thunder-rigs.twin/v1',
             meta: { id: (A.name + '-transcribed').toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 40), name: (A.name + ' — TRANSCRIBED').toUpperCase(), description: 'Directed from the source film: ' + A.sections.length + ' sections over ' + A.dur + 's. Each beat carries its section features (why).' },
