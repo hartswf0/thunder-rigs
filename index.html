@@ -15533,6 +15533,13 @@ function runCommand(text){
             return { p, s };
         };
         const camWords = t.match(/\b(wide|close|low|aerial|behind|front)\b/);
+        // COMPOSE A FILM (ABC CINEOSIS): prompt -> blueprint -> spoken direction on
+        // the clock -> camera moves, cast, motif forts, cues, a marked reel.
+        if(/\b(compose|make|write|direct)\b.*\bfilm\b.*\babout\b|\bfilm about\b|\bcineosis\b/.test(t)){
+            const seed = (t.split(/\babout\b/)[1] || t.replace(/\bcineosis\b/, '')).trim() || 'the storm gate';
+            if (window.TWIN && TWIN.composeFilm) { TWIN.composeFilm(seed); return 'composing — the film will direct itself, then "export the film"'; }
+            return 'cineosis offline';
+        }
         // EXPORT THE FILM: play the reel while recording, auto-save the take
         if(/\b(export|save|render)\b.*\bfilm\b|\bfilm it\b|\bmake (the |a )?film\b/.test(t)){
             if (!window.CINE) return 'cine offline';
@@ -15979,6 +15986,19 @@ const TWIN = (() => {
     function fireBeat(b, i) {
         try {
             if ((b.kind === 'say' || b.kind === 'motion') && b.prompt) return BUS.say(b.prompt, 'twin');
+            if (b.kind === 'cue' && b.prompt) {   // sound design: the sonic lexicon -> the SFX engine
+                const s = String(b.prompt).toLowerCase();
+                try {
+                    if (/impact|strike|thunder|crash|hit/.test(s)) SFX.impact(1.6);
+                    else if (/chime|resolve|bell|complete/.test(s)) SFX.complete();
+                    else if (/collapse|fall|demolish|break/.test(s)) SFX.demolish();
+                    else if (/rise|rising|swell|rumble/.test(s)) SFX.rise();
+                    else if (/hush|silence|still|quiet/.test(s)) SFX.buildStop();
+                    else if (/hum|drone|machine/.test(s)) SFX.buildStart();
+                    else SFX.ui();
+                } catch(_){}
+                return 'cue: ' + s.slice(0, 30);
+            }
             if (b.kind === 'sculpt' && Array.isArray(b.commands)) {
                 const g = sculpt(b.commands);
                 const a = b.anchor || { x: 0, z: -22 };
@@ -16318,6 +16338,84 @@ const TWIN = (() => {
         } catch (e) { console.warn('[twin transcribeAI]', e && e.message); }
         return fallback;
     }
+    // ── ABC CINEOSIS → THUNDER-FILM (see film/CINEOSIS.md) ───────────────────
+    // A film blueprint (cineosis-film/v1) compiles to twin beats that SPEAK the
+    // studio grammar on the clock: cast HELLOs, camera moves, shot marks, cue
+    // beats, motif forts. Prompt -> actual camera moves -> a reel -> a take.
+    const FN_CAM = { perception: 'wide', action: 'behind', affection: 'close', opsign: 'aerial', sonsign: 'low', crystal: 'wide', recollection: 'wide' };
+    function goldenFilm(seed) {
+        const words = String(seed || 'the storm gate').toLowerCase().replace(/[^a-z0-9 ]/g, '').split(/\s+/).filter(w => w.length > 2);
+        const thing = words[words.length - 1] || 'gate';
+        const name = (words.find(w => !['the', 'and', 'about', 'with'].includes(w)) || 'vess').slice(0, 10);
+        const fns = ['perception', 'action', 'affection', 'opsign', 'sonsign', 'crystal', 'recollection', 'action', 'opsign'];
+        const layers = ['past', 'present', 'present', 'past', 'present', 'past', 'past', 'future', 'future'];
+        const acts = [name + ' patrols slowly', name + ' orbits the ' + thing + ' fast', 'everything freezes',
+            'an overdrive pad here', name + ' guards the ' + thing, 'everything bobs slowly',
+            name + ' patrols slowly', 'a cup at center', 'everything floats slowly'];
+        const snds = ['low hum, rising', 'thunder strike', 'hush', 'chime', 'low hum', 'hush', 'rumble rising', 'impact', 'chime resolve'];
+        return { format: 'cineosis-film/v1',
+            title: ('THE ' + thing + ' THAT REMEMBERS').toUpperCase(),
+            seed: String(seed || ''), engine: 'the ' + thing + "'s past floods every present crossing",
+            abc: { a: name + ' — pressure of guarding what already fell', b: thing + ' beams, rain voxels, a circling rig', c: 'the arena replays the ' + thing + ' inside the scene' },
+            motifs: [{ name: 'the ' + thing, past: 'a broken ' + thing + ' of leaning pillars', present: 'a lit ' + thing + ' arch', future: 'a tall wireframe ' + thing + ' of thin spires' }],
+            cast: [{ name, desc: String(seed || 'a keeper') }],
+            beats: fns.map((fn, i) => ({ title: fn + ' of the ' + thing, dur: 6, fn, layer: layers[i], subject: name, action: acts[i], sound: snds[i], transition: i % 3 === 0 ? 'dissolve' : 'cut' })) };
+    }
+    function compileFilm(bp) {
+        const beats = []; let t = 0;
+        (bp.cast || []).forEach((c, i) => beats.push({ at: +(0.2 + i * 0.6).toFixed(1), kind: 'say', prompt: 'cast a ' + (c.desc || 'keeper') + ' named ' + c.name, why: { fn: 'cast' } }));
+        t = 2;
+        const motifAts = [];   // motif geometry evolves across the film
+        const total = (bp.beats || []).reduce((x, b) => x + (+b.dur || 6), 0);
+        (bp.motifs || []).forEach((m, mi) => {
+            const anchor = { x: Math.round(Math.cos(mi * 2.1) * 26), z: Math.round(Math.sin(mi * 2.1) * 26) };
+            [['past', 2.5], ['present', total * 0.45], ['future', total * 0.8]].forEach(([form, at]) => {
+                beats.push({ at: +(+at).toFixed(1), kind: 'fort', id: 'motif-' + mi + '-' + form, prompt: m[form] || m.name, anchor, why: { motif: m.name, form } });
+            });
+        });
+        (bp.beats || []).forEach((b, i) => {
+            const fn = FN_CAM[b.fn] ? b.fn : 'perception';
+            const subj = (b.subject || (bp.cast && bp.cast[0] && bp.cast[0].name) || 'me').toLowerCase();
+            const cam = b.fn === 'recollection' && bp.beats[i - 2] ? (FN_CAM[bp.beats[i - 2].fn] || 'wide') : FN_CAM[fn];
+            if (b.transition !== 'hold') {
+                beats.push({ at: +(t + 0.2).toFixed(1), kind: 'say', prompt: 'camera ' + cam + ' on ' + subj, why: { fn: b.fn, beat: b.title } });
+                beats.push({ at: +(t + 0.8).toFixed(1), kind: 'say', prompt: 'mark a ' + cam + ' shot on ' + subj, why: { fn: b.fn } });
+            }
+            if (b.sound) beats.push({ at: +(t + 0.5).toFixed(1), kind: 'cue', prompt: b.sound, why: { fn: 'sonsign' } });
+            if (b.action) beats.push({ at: +(t + 1.2).toFixed(1), kind: 'say', prompt: b.action, why: { fn: b.fn, beat: b.title } });
+            t += (+b.dur || 6);
+        });
+        return { format: 'thunder-rigs.twin/v1',
+            meta: { id: String(bp.title || 'cineosis-film').toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 40), name: bp.title || 'CINEOSIS FILM', description: (bp.engine || '') + ' · compiled from cineosis-film/v1' },
+            source: { format: 'cineosis-film/v1', seed: bp.seed, abc: bp.abc },
+            beats: beats.sort((a, b2) => a.at - b2.at) };
+    }
+    async function composeFilm(seed) {
+        const golden = goldenFilm(seed);
+        let bp = golden;
+        let useAI = false; try { useAI = aiLocalAvailable() || getAIConfig().provider === 'thunder'; } catch(_){}
+        if (useAI) {
+            const sys = 'You are ABC CINEOSIS, a cybernetic cinema system. Compose a film as JSON ONLY (no prose, no fences):\n' +
+                '{"format":"cineosis-film/v1","title":"...","seed":"...","engine":"one sentence: how past/present/future interact",' +
+                '"abc":{"a":"actor/affect","b":"body/behavior","c":"continuity/crystal"},' +
+                '"motifs":[{"name":"...","past":"physical form","present":"physical form","future":"physical form"}],' +
+                '"cast":[{"name":"oneword","desc":"a physical rig description"}],' +
+                '"beats":[{"title":"...","dur":6,"fn":"perception|action|affection|opsign|sonsign|crystal|recollection","layer":"past|present|future","subject":"castname","action":"a SHORT spoken direction (patrol/orbit/guard/freeze verbs, or game verbs like an overdrive pad here)","sound":"hum|thunder|hush|chime|rumble|impact words","transition":"cut|dissolve|hold"}]}\n' +
+                'Rules: 8-12 beats; every fn appears at least once; actions are utterances a game parses, not literature; motif forms are buildable physical descriptions.\n' +
+                'EXAMPLE (format, not content):\n' + JSON.stringify(golden) + '\nFilm seed: "' + String(seed).slice(0, 160) + '"';
+            try {
+                const reply = await requestAIText(String(seed), sys, null, 3500, { task: 'cineosis' });
+                let x = String(reply || '').replace(/```json/gi, '').replace(/```/g, '').trim();
+                const a = x.indexOf('{'), b = x.lastIndexOf('}');
+                if (a >= 0 && b > a) x = x.slice(a, b + 1);
+                const cand = JSON.parse(x);
+                if (cand && cand.format === 'cineosis-film/v1' && Array.isArray(cand.beats) && cand.beats.length >= 6) bp = cand;
+            } catch (e) { console.warn('[cineosis]', e && e.message); }
+        }
+        const tw = compileFilm(bp);
+        notify('🎬 ' + (bp.title || 'FILM') + ' — ' + tw.beats.length + ' beats' + (bp === golden ? ' (golden poet)' : ' (model composed)'));
+        return performTwin(tw);
+    }
     async function performAI(doc, onBeat) {
         notify('AI BAKE — FORGING EVERY BEAT…');
         const s = await bakeAI(doc, onBeat);
@@ -16333,7 +16431,7 @@ const TWIN = (() => {
             return true;
         } catch (e) { console.warn('[twin save]', e); return false; }
     }
-    return { showFilm, stop, performTwin, performAI, stopPerf, bake, bakeAI, analyze, transcribe, transcribeAI, saveTranscript, elements, compileFort, compileRig, sculpt, tick: tickAll,
+    return { showFilm, stop, performTwin, performAI, stopPerf, bake, bakeAI, analyze, transcribe, transcribeAI, saveTranscript, elements, compileFort, compileRig, sculpt, goldenFilm, compileFilm, composeFilm, tick: tickAll,
         get playing() { return !!show || !!perf; }, get frame() { return show ? show.idx : -1; },
         get beat() { return perf ? perf.fired.size : -1; }, get lastFilm() { return lastOp; }, get lastTranscript() { return lastTranscript; } };
 })();
