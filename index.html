@@ -15506,6 +15506,83 @@ function runCommand(text){
             if(window.TWIN && TWIN.playing) return 'twin already rolling';
             document.getElementById('file-upload')?.click(); return 'pick a .twin.json — a film screens, a beat-twin performs, "transcribe the twin" directs it in 3D';
         }
+        // ── STUDIO — cast, cameras, shots, the film ──────────────────────────
+        // HELLO to multiple characters; the world and forts are the set; you
+        // hold either a character or the camera. All directed from here.
+        const __subjectPos = (st) => {
+            if (!st || /\b(me|player|my)\b/.test(st)) return P.pos.clone();
+            if (/\bball\b/.test(st)) return B.pos.clone();
+            const bot = (typeof localBots !== 'undefined') && localBots.find(b => b && !b.destroyed && st.includes(b.name.toLowerCase()));
+            if (bot) return (bot.phys && bot.phys.pos ? bot.phys.pos.clone() : bot.car.position.clone());
+            const obj = (typeof selectableObjects !== 'undefined') && selectableObjects.find(o => { const s = ((o.userData.name || '') + ' ' + (o.userData.label || '')).toLowerCase(); return s && st.split(/\s+/).some(w => w.length > 2 && s.includes(w)); });
+            return obj ? obj.position.clone() : P.pos.clone();
+        };
+        const __placeCam = (type, st) => {
+            const s = __subjectPos(st);
+            const yaw = (typeof P !== 'undefined') ? P.yaw : 0;
+            let p;
+            if (type === 'aerial') p = s.clone().add(new THREE.Vector3(0.5, 38, 0.5));
+            else if (type === 'close') p = s.clone().add(new THREE.Vector3(Math.sin(yaw + 2.6) * 5.5, 2.2, Math.cos(yaw + 2.6) * 5.5));
+            else if (type === 'low') p = s.clone().add(new THREE.Vector3(Math.sin(yaw + 2.2) * 9, 1.1, Math.cos(yaw + 2.2) * 9));
+            else if (type === 'behind') p = s.clone().add(new THREE.Vector3(-Math.sin(yaw) * 8.5, 3.2, -Math.cos(yaw) * 8.5));
+            else if (type === 'front') p = s.clone().add(new THREE.Vector3(Math.sin(yaw) * 8.5, 2.4, Math.cos(yaw) * 8.5));
+            else p = s.clone().add(new THREE.Vector3(14, 12, 20));   // wide
+            camMode = 'FREE';
+            camera.position.copy(p);
+            orbit.target.copy(s.clone().setY(Math.max(1.5, s.y + 1)));
+            return { p, s };
+        };
+        const camWords = t.match(/\b(wide|close|low|aerial|behind|front)\b/);
+        // EXPORT THE FILM: play the reel while recording, auto-save the take
+        if(/\b(export|save|render)\b.*\bfilm\b|\bfilm it\b|\bmake (the |a )?film\b/.test(t)){
+            if (!window.CINE) return 'cine offline';
+            if (!CINE.shots.length) return 'no shots marked — "mark a wide shot", then "export the film"';
+            CINE.film(); return 'rolling — filming the reel, the take saves itself';
+        }
+        // MARK typed shots: "mark a wide shot on rook" places the camera THEN marks
+        if(/\bmark\b.*\bshot\b/.test(t) && camWords){
+            const on = (t.split(/\bon\b|\bat\b/)[1] || '').trim();
+            __placeCam(camWords[1], on);
+            const n = CINE.mark();
+            return n ? ('shot ' + n + ' marked — ' + camWords[1] + (on ? ' on ' + on : '')) : 'reel full';
+        }
+        // CAMERA direction: "camera close on rook" · "camera aerial" · "camera follow me"
+        if(/\bcamera\b|\bcam\b/.test(t) && !/\brecord\b|\bdrive\b|\boperate\b/.test(t)){
+            if(/follow (me|car|rig)|\bchase\b/.test(t)){ camMode = 'CAR'; return 'camera: follow'; }
+            if(/follow (the )?ball/.test(t)){ camMode = 'BALL'; return 'camera: ball'; }
+            if(/\baction\b/.test(t)){ camMode = 'ACTION'; return 'camera: action (car+ball)'; }
+            const on = (t.split(/\bon\b|\bat\b/)[1] || '').trim();
+            const type = camWords ? camWords[1] : 'wide';
+            __placeCam(type, on);
+            return 'camera: ' + type + (on ? ' on ' + on : '') + ' — "mark a shot" to keep it';
+        }
+        // DRIVE the camera or the character
+        if(/\bdrive\b.*\b(camera|cam)\b|\boperate\b/.test(t)){ window.__camDrive = true; camMode = 'FREE'; return 'you hold the CAMERA — stick flies it, Space/Shift crane. "drive the rig" to return'; }
+        if(/\bdrive\b.*\b(rig|car|character)\b|\bback to (the )?(rig|car)\b/.test(t)){ window.__camDrive = false; camMode = 'CAR'; return 'you hold the RIG'; }
+        // CAST: "cast a golden knight named rook" — a new character joins (ally body)
+        if(/^cast\b|\bcast a\b|\bnew character\b|\badd a character\b/.test(t)){
+            const nm = (t.match(/named ([a-z0-9-]+)/) || [])[1];
+            const b = deployBot({ team: 'ally' });
+            if (!b) return 'stage full — bot limit';
+            if (nm) { b.name = nm.toUpperCase(); }
+            try { const g = window.GOLDEN && GOLDEN.pick(t); if (g && g.entry && g.entry.code) {
+                const spec2 = Object.assign({}, b.spec, { vcode: g.entry.code });
+                const keep = b.car.position.clone(); scene.remove(b.car);
+                b.car = buildCar(spec2); b.car.position.copy(keep); scene.add(b.car); b.spec = spec2;
+            } } catch(e){ console.warn('[cast]', e); }
+            try { renderBotList(true); } catch(_){}
+            return b.name + ' joins the cast — "play as ' + b.name.toLowerCase() + '" to become them, "camera close on ' + b.name.toLowerCase() + '" to frame them';
+        }
+        // PLAY AS: wear a cast member's body
+        {
+            const pm = t.match(/\bplay as ([a-z0-9-]+)|\bbecome ([a-z0-9-]+)/);
+            const nm = pm && (pm[1] || pm[2]);
+            if (nm && typeof localBots !== 'undefined') {
+                const b = localBots.find(x => x && x.name.toLowerCase().includes(nm));
+                if (b) { applyLoadout(Object.assign({}, myLoadout, b.spec)); return 'you are ' + b.name + ' — their body is yours'; }
+                return 'no cast member called ' + nm;
+            }
+        }
         // cinema verbs first — they are specific words and never collide with build verbs
         if(/\bcut\b|stop (the )?(rec|record|film|reel)/.test(t)){ CINE.cut(); return 'cut'; }
         if(/\baction\b|\bfilm it\b|make (a |the )?film|shoot (the )?(reel|film)/.test(t)){ CINE.film(); return CINE.shots.length? 'rolling — filming the reel':'mark shots first'; }
@@ -16351,6 +16428,19 @@ function frame(now) {
         if (localCarDestroyed) { isFiring = false; isBoosting = false; }
         else if(dId !== null) { inX = driveX; inY = driveY; } 
         else { if(keys.KeyA || keys.ArrowLeft) inX -= 1; if(keys.KeyD || keys.ArrowRight) inX += 1; if(keys.KeyW || keys.ArrowUp) inY += 1; if(keys.KeyS || keys.ArrowDown) inY -= 1; }
+
+        // DIRECTOR DRIVE ("drive the camera"): the same stick flies the camera as a
+        // dolly — forward/strafe on the ground plane, Space/Shift for crane up/down —
+        // while the character idles. "drive the rig" hands the body back.
+        if (window.__camDrive) {
+            const thC = orbit.getAzimuthalAngle();
+            const fC = new THREE.Vector3(-Math.sin(thC), 0, -Math.cos(thC)), rC = new THREE.Vector3(Math.cos(thC), 0, -Math.sin(thC));
+            const mv = new THREE.Vector3().addScaledVector(rC, inX).addScaledVector(fC, inY).multiplyScalar(28 * dt);
+            if (keys.Space) mv.y += 20 * dt;
+            if (keys.ShiftLeft || keys.ShiftRight) mv.y -= 20 * dt;
+            camera.position.add(mv); orbit.target.add(mv);
+            inX = 0; inY = 0;   // the car stays parked while you operate
+        }
 
         let theta = orbit.getAzimuthalAngle(); let sinT = Math.sin(theta); let cosT = Math.cos(theta);
         let camFwd = new THREE.Vector3(-sinT, 0, -cosT); let camRight = new THREE.Vector3(cosT, 0, -sinT);
