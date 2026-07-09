@@ -98,8 +98,21 @@ body.menu-open #toolbars { top:max(72px,calc(env(safe-area-inset-top) + 56px)); 
 .bbtn .gly{width:16px;height:12px; border: 2px solid currentColor; margin-bottom: 2px;}
 
 /* ---- SCENE GRAPH (LEFT SIDE) ---- */
-#scene-graph { position: absolute; left: 12px; top: calc(var(--lane-top, 12px) + 52px); max-height: min(70vh, 600px); width: 250px; background: rgba(6,9,12,.94); border: 1px solid rgba(0,255,136,.4); border-radius: 12px; backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); display: none; flex-direction: column; z-index: 9; pointer-events: auto; box-shadow: 0 12px 38px rgba(0,0,0,0.62); overflow: hidden; }
-#scene-graph .sg-list{ padding: 8px; }
+/* FILM STUDIO panel — clears the thundermark, fills the left column, scrolls */
+#scene-graph { position: absolute; left: 12px; top: calc(var(--lane-top, 12px) + 78px); bottom: max(150px, calc(env(safe-area-inset-bottom) + 150px)); max-height: none; width: 264px; max-width: calc(100vw - 24px); background: rgba(6,9,12,.95); border: 1px solid rgba(0,255,136,.4); border-radius: 12px; backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); display: none; flex-direction: column; z-index: 11; pointer-events: auto; box-shadow: 0 12px 38px rgba(0,0,0,0.62); overflow: hidden; }
+#scene-graph .sg-header{ display:flex; align-items:center; justify-content:space-between; padding:10px 12px; font-size:10px; letter-spacing:.18em; color:#8affc8; border-bottom:1px solid rgba(0,255,136,.2); font-weight:800; flex:0 0 auto; }
+#scene-graph .sg-header button{ background:none; border:1px solid rgba(255,255,255,.2); color:#ccc; border-radius:7px; width:24px; height:24px; font-size:12px; cursor:pointer; }
+#scene-graph .sg-list{ padding: 8px; flex:1 1 auto; }
+/* the composer — the obvious way to START a film */
+#film-composer{ flex:0 0 auto; padding:11px 12px 12px; border-bottom:1px solid rgba(168,85,247,.28); background:rgba(168,85,247,.07); }
+#film-composer .fc-cue{ font-size:9.5px; color:#b6a9d0; letter-spacing:.02em; margin-bottom:7px; line-height:1.3; }
+#film-seed-input{ width:100%; box-sizing:border-box; background:#0a0d11; border:1px solid rgba(168,85,247,.5); border-radius:8px; color:#f0ecff; font:inherit; font-size:12px; padding:9px 10px; outline:none; }
+#film-seed-input:focus{ border-color:#a855f7; box-shadow:0 0 0 2px rgba(168,85,247,.2); }
+#film-compose-btn{ width:100%; margin-top:7px; background:linear-gradient(90deg,#a855f7,#19e6c8); border:none; border-radius:8px; color:#08110f; font:800 11px/1 inherit; letter-spacing:.08em; padding:10px; cursor:pointer; -webkit-tap-highlight-color:transparent; }
+#film-compose-btn:active{ transform:scale(.98); }
+#film-examples{ display:flex; flex-wrap:wrap; gap:5px; margin-top:8px; }
+#film-examples button{ background:rgba(255,255,255,.05); border:1px solid rgba(255,255,255,.14); color:#c4c9d1; border-radius:12px; font:600 9px/1 inherit; padding:5px 8px; cursor:pointer; }
+#film-examples button:active{ background:rgba(25,230,200,.2); color:#04211d; }
 /* the styled scrollbar the graph was missing */
 #scene-graph .sg-list{ scrollbar-width: thin; scrollbar-color: rgba(25,230,200,.5) transparent; }
 #scene-graph .sg-list::-webkit-scrollbar{ width: 8px; }
@@ -479,9 +492,40 @@ body.world-light #toast{background:#101820;color:#fff}
 
 <!-- Scene Graph (Left Side) -->
 <div id="scene-graph">
-    <div class="sg-header">SCENE GRAPH</div>
+    <div class="sg-header"><span>FILM STUDIO</span><button id="sg-close" type="button" aria-label="close">✕</button></div>
+    <div id="film-composer">
+        <div class="fc-cue">Describe a film — a place, a memory, a character:</div>
+        <input id="film-seed-input" type="text" autocomplete="off" spellcheck="false" placeholder="a keeper of the storm gate">
+        <button id="film-compose-btn" type="button">COMPOSE FILM ▸</button>
+        <div id="film-examples">
+            <button type="button" data-seed="a keeper of the storm gate">storm gate keeper</button>
+            <button type="button" data-seed="a lighthouse that lost the sea">drowned lighthouse</button>
+            <button type="button" data-seed="a machine that remembers rain">rain machine</button>
+            <button type="button" data-seed="a garden growing over a dead city">garden ruin</button>
+        </div>
+    </div>
     <div id="sg-list" class="sg-list"></div>
 </div>
+<script>
+(function filmComposer(){
+    const inp = document.getElementById('film-seed-input'), btn = document.getElementById('film-compose-btn');
+    if (!inp || !btn) return;
+    const go = () => { const seed = (inp.value || inp.placeholder || 'a keeper of the storm gate').trim();
+        try { if (window.BUS) BUS.say('compose a film about ' + seed, 'studio'); else if (window.TWIN) TWIN.composeFilm(seed); } catch(e){ console.warn('[compose]', e); }
+        try { if (window.__openFilmGraph) window.__openFilmGraph(); } catch(_){} };
+    btn.addEventListener('click', go);
+    inp.addEventListener('keydown', e => { if (e.key === 'Enter') go(); });
+    document.querySelectorAll('#film-examples button').forEach(b => b.addEventListener('click', () => { inp.value = b.dataset.seed; go(); }));
+    const cl = document.getElementById('sg-close'); if (cl) cl.addEventListener('click', () => { const p = document.getElementById('scene-graph'); if (p) p.classList.remove('show'); });
+    // menu → STUDIO opens the film studio and focuses the composer
+    const studioBtn = document.getElementById('btn-cine-studio');
+    if (studioBtn) studioBtn.addEventListener('click', () => {
+        try { const mf = document.getElementById('menu-fab'); if (mf && document.body.classList.contains('menu-open')) mf.click(); } catch(_){}
+        const p = document.getElementById('scene-graph'); if (p) p.classList.add('show');
+        setTimeout(() => { try { inp.focus(); } catch(_){} }, 80);
+    });
+})();
+</script>
 
 <!-- Modular Toolbars (Right Side) -->
 <button id="menu-fab" aria-label="Menu"><span class="bars">≡</span><span class="x">✕</span></button>
@@ -521,6 +565,7 @@ body.world-light #toast{background:#101820;color:#fff}
         <div class="tb-group">
             <button class="tb-toggle" data-target="tb-cine" style="color:#19e6c8; border-color:#19e6c8;">CINE</button>
             <div id="tb-cine" class="tb-items collapsed">
+                <button class="bbtn" id="btn-cine-studio" style="border-color:#a855f7;"><span class="lab" style="color:#d8b4fe;">STUDIO</span><span class="sub">MAKE A FILM</span></button>
                 <button class="bbtn" id="btn-cine-rec">
                     <span class="gly" id="cine-rec-gly" style="border-color:#ff2e2e; width:12px; height:12px; display:flex; align-items:center; justify-content:center;"><span style="width:6px; height:6px; background:#ff2e2e; display:block;"></span></span>
                     <span class="lab" id="cine-rec-lab" style="color:#ff2e2e;">REC</span>
@@ -14398,6 +14443,9 @@ Reply with ONLY a JSON array of 2–8 NEW parts, each: {"kind":"one of: ${KINDS}
         // FIELD BUILDER stays reachable: park it as the compact lightning tab, so
         // one tap on the bolt always opens/closes it in play.
         try{ const _fb=document.getElementById('ai-bar'); if(_fb){ _fb.classList.remove('gone'); _fb.classList.add('stowed'); document.body.classList.remove('agent-line-open'); } }catch(_){}
+        // THE ENTRY: open the FILM STUDIO so the very first thing you see is how to
+        // start — "Describe a film … [COMPOSE]". This is the point of the app.
+        try{ const _sg=document.getElementById('scene-graph'); if(_sg) _sg.classList.add('show'); }catch(_){}
         // FIRST RUN: run the guided coach once (progressive, action-first).
         try{ if(!localStorage.getItem('trig.tutseen')){ localStorage.setItem('trig.tutseen','1'); setTimeout(()=>{ try{ window.__tutor && window.__tutor.show(); }catch(_){} }, 700); } }catch(_){}
         if (pendingRitualAutoJoin){ pendingRitualAutoJoin = false; setTimeout(()=>joinRoomUIHandler(false), 200); }
