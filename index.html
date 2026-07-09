@@ -16065,6 +16065,105 @@ const TWIN = (() => {
         g.userData = { name: 'twin-sculpt', type: 'twin-sculpt', _twinSculpt: true };
         return g;
     }
+    // ── ELEMENTS — recognize the film's figures and COMPILE them native ──────
+    // Cluster a frame's strokes into connected elements (union-find on
+    // proximity), then compile each element into REAL builder code:
+    // compileFort -> function build(w, WG, THREE) with WG.solid collision (a
+    // first-class fort: forged, certified, broadcast, cartridge-saved);
+    // compileRig -> function build(g, VG, THREE) (a HELLO — the film's figure
+    // as your drivable rig). The film's elements become native citizens.
+    function elements(cmds, opts = {}) {
+        const items = [];   // {x,y,x2?,y2?,c,kind}
+        for (const c of cmds) {
+            const p = c.split(' ');
+            if (p[0] === 'LIN') items.push({ kind: 'l', x: +p[1], y: +p[2], x2: +p[3], y2: +p[4], c: +p[5] || 0 });
+            else if (p[0] === 'PNT') items.push({ kind: 'p', x: +p[1], y: +p[2], w: +p[3] || 1, h: +p[4] || 1, c: +p[5] || 0 });
+        }
+        const R = opts.join || 7;   // px join distance
+        const par = items.map((_, i) => i);
+        const find = i => { while (par[i] !== i) { par[i] = par[par[i]]; i = par[i]; } return i; };
+        const uni = (a, b) => { const ra = find(a), rb = find(b); if (ra !== rb) par[rb] = ra; };
+        const near = (a, b) => {
+            const ax1 = Math.min(a.x, a.x2 != null ? a.x2 : a.x), ax2 = Math.max(a.x, a.x2 != null ? a.x2 : a.x);
+            const ay1 = Math.min(a.y, a.y2 != null ? a.y2 : a.y), ay2 = Math.max(a.y, a.y2 != null ? a.y2 : a.y);
+            const bx1 = Math.min(b.x, b.x2 != null ? b.x2 : b.x), bx2 = Math.max(b.x, b.x2 != null ? b.x2 : b.x);
+            const by1 = Math.min(b.y, b.y2 != null ? b.y2 : b.y), by2 = Math.max(b.y, b.y2 != null ? b.y2 : b.y);
+            return !(bx1 > ax2 + R || ax1 > bx2 + R || by1 > ay2 + R || ay1 > by2 + R);
+        };
+        for (let i = 0; i < items.length; i++) for (let j = i + 1; j < items.length; j++) if (near(items[i], items[j])) uni(i, j);
+        const groups = {};
+        items.forEach((it, i) => { const r = find(i); (groups[r] = groups[r] || []).push(it); });
+        const els = Object.values(groups).filter(g => g.length >= 3).map(g => {
+            let x1 = 1e9, y1 = 1e9, x2 = -1e9, y2 = -1e9;
+            g.forEach(it => { x1 = Math.min(x1, it.x, it.x2 != null ? it.x2 : it.x); x2 = Math.max(x2, it.x, it.x2 != null ? it.x2 : it.x);
+                              y1 = Math.min(y1, it.y, it.y2 != null ? it.y2 : it.y); y2 = Math.max(y2, it.y, it.y2 != null ? it.y2 : it.y); });
+            const w = Math.max(1, x2 - x1), h = Math.max(1, y2 - y1);
+            return { items: g, bbox: { x1, y1, x2, y2 }, w, h, aspect: +(h / w).toFixed(2),
+                     lines: g.filter(i => i.kind === 'l').length, dots: g.filter(i => i.kind === 'p').length,
+                     size: +(Math.max(w, h)).toFixed(0), count: g.length };
+        }).sort((a, b) => b.count - a.count);
+        return els;
+    }
+    const F2 = n => +(+n).toFixed(2);
+    // element -> native WG FORT code (film Y up -> world Y up, ground at the element's base)
+    function compileFort(el, opts = {}) {
+        const S = Math.min((opts.width || 14) / el.w, (opts.height || 11) / el.h);
+        const cx = (el.bbox.x1 + el.bbox.x2) / 2, base = el.bbox.y2;
+        const mx = x => F2((x - cx) * S), my = y => F2(Math.max(0.3, (base - y) * S));
+        const L = ['function build(w, WG, THREE){',
+            '  const lit=WG.lit(0x19e6c8,1.15), drk=WG.flat(0x11181c,{rough:0.6}), mid=WG.flat(0x2b6f68,{rough:0.5});'];
+        let n = 0;
+        const lines = el.items.filter(i => i.kind === 'l').sort((a, b) => Math.hypot(b.x2 - b.x, b.y2 - b.y) - Math.hypot(a.x2 - a.x, a.y2 - a.y)).slice(0, 36);
+        for (const s of lines) {
+            const x1 = mx(s.x), y1 = my(s.y), x2 = mx(s.x2), y2 = my(s.y2);
+            const len = F2(Math.hypot(x2 - x1, y2 - y1)); if (len < 0.3) continue;
+            const ang = F2(Math.atan2(y2 - y1, x2 - x1));
+            const mat = s.c <= 2 ? 'lit' : (s.c <= 4 ? 'mid' : 'drk');
+            L.push('  { const b=WG.box(' + len + ',0.55,0.55,' + mat + '); WG.put(b,' + F2((x1 + x2) / 2) + ',' + F2((y1 + y2) / 2) + ',0); b.rotation.z=' + ang + '; WG.solid(b,' + F2(Math.abs(len * Math.cos(ang)) + 0.6) + ',' + F2(Math.abs(len * Math.sin(ang)) + 0.6) + ',0.6); }');
+            n++;
+        }
+        // dots: grid-merge to at most 24 voxel boxes
+        const dots = el.items.filter(i => i.kind === 'p');
+        if (dots.length) {
+            const cell = Math.max(2, Math.ceil(Math.sqrt(dots.length / 24)) * 2), seen = new Set();
+            for (const d of dots) {
+                const k = Math.floor(d.x / cell) + ':' + Math.floor(d.y / cell);
+                if (seen.has(k)) continue; seen.add(k);
+                if (seen.size > 24) break;
+                const sz = F2(Math.max(0.5, cell * S));
+                L.push('  { const v=WG.box(' + sz + ',' + sz + ',0.55,' + (d.c <= 2 ? 'lit' : 'mid') + '); WG.put(v,' + mx(d.x + cell / 2) + ',' + my(d.y + cell / 2) + ',0); WG.solid(v,' + sz + ',' + sz + ',0.6); }');
+                n++;
+            }
+        }
+        L.push('  return w;', '}');
+        return n ? L.join('\n') : null;
+    }
+    // element -> native VG RIG code (a HELLO: the figure rides on wheels)
+    function compileRig(el) {
+        const S = Math.min(2.6 / el.w, 1.9 / el.h);
+        const cx = (el.bbox.x1 + el.bbox.x2) / 2, base = el.bbox.y2;
+        const mx = x => F2((x - cx) * S), my = y => F2(0.75 + Math.max(0.05, (base - y) * S));
+        const L = ['function build(g, VG, THREE){',
+            '  const {box, matte, paint, emiss, knobbyWheel, contactShadow} = VG;',
+            '  const lit=emiss(0x19e6c8,1.6), body=paint(0x141a1f,{rough:0.5,metal:0.3});',
+            '  const ch=box(2.4,0.34,1.5,body); ch.position.set(0,0.62,0); g.add(ch);',
+            '  [[-0.95,0.62],[0.95,0.62],[-0.95,-0.62],[0.95,-0.62]].forEach(p=>{ const w=knobbyWheel(0.42,0.3,0x2a3238); w.position.set(p[0],0.42,p[1]); g.add(w); });'];
+        let n = 0;
+        const lines = el.items.filter(i => i.kind === 'l').slice(0, 28);
+        for (const s of lines) {
+            const x1 = mx(s.x), y1 = my(s.y), x2 = mx(s.x2), y2 = my(s.y2);
+            const len = F2(Math.hypot(x2 - x1, y2 - y1)); if (len < 0.1) continue;
+            L.push('  { const b=box(' + len + ',0.12,0.12,' + (s.c <= 2 ? 'lit' : 'body') + '); b.position.set(' + F2((x1 + x2) / 2) + ',' + F2((y1 + y2) / 2) + ',0); b.rotation.z=' + F2(Math.atan2(y2 - y1, x2 - x1)) + '; g.add(b); }');
+            n++;
+        }
+        const dots = el.items.filter(i => i.kind === 'p').slice(0, 30);
+        for (const d of dots) {
+            L.push('  { const v=box(0.12,0.12,0.14,' + (d.c <= 2 ? 'lit' : 'body') + '); v.position.set(' + mx(d.x) + ',' + my(d.y) + ',0); g.add(v); }');
+            n++;
+        }
+        L.push('  g.add(contactShadow(3.4,2.2));', '}');
+        return n >= 4 ? L.join('\n') : null;
+    }
     // the deterministic poet: features -> prompt words (also the AI's few-shot)
     function poet(sec, role) {
         const pace = sec.energy > 0.6 ? 'storming' : sec.energy > 0.35 ? 'pulsing' : 'hushed';
@@ -16087,9 +16186,28 @@ const TWIN = (() => {
             const cam = { p: ring(i), t: [0, 3, 0], travel: Math.max(1.5, Math.min(6, 3 / Math.max(0.15, s.change))) };
             const ang = i * 1.1 + 0.6;   // sculpture ring sits INSIDE the camera ring
             const anchor = { x: Math.round(Math.cos(ang) * 22), z: Math.round(Math.sin(ang) * 22) };
+            const els = Array.isArray(s.kfCommands) ? elements(s.kfCommands) : [];
             if (i === 0) beats.push({ at: 0, kind: 'world', prompt: poet(s, 'world'), why: strip(s), cam });
-            if (i === 1) beats.push({ at: s.at, kind: 'rig', prompt: poet(s, 'rig'), why: strip(s), cam: { ...cam, subject: 'player' } });
-            // THE FILM'S OWN GEOMETRY: this section's densest drawing stands in the arena
+            if (i === 1) {
+                // THE HELLO: a figure-like element of the film becomes YOUR RIG, compiled to native VG code
+                const fig = els.find(e => e.aspect >= 1.05 && e.size <= 64 && e.count >= 4);
+                const vcode = fig ? compileRig(fig) : null;
+                beats.push(vcode
+                    ? { at: s.at, kind: 'rig', prompt: 'the film\'s figure, riding — compiled native', code: vcode, baked: 'film-element', why: strip(s), cam: { ...cam, subject: 'player' } }
+                    : { at: s.at, kind: 'rig', prompt: poet(s, 'rig'), why: strip(s), cam: { ...cam, subject: 'player' } });
+            }
+            // THE FORT: the section's largest element, compiled to native WG code —
+            // forged, collidable, broadcast to the room, saved into cartridges.
+            if (els.length) {
+                const code = compileFort(els[0]);
+                if (code) {
+                    const fa = { x: Math.round(Math.cos(ang + 0.55) * 30), z: Math.round(Math.sin(ang + 0.55) * 30) };
+                    beats.push({ at: +(s.at + (i === 0 ? 3 : 1)).toFixed(1), kind: 'fort', id: 'film-el-' + i,
+                        prompt: 'the film\'s element (' + els[0].lines + ' strokes, ' + els[0].dots + ' dots) — built native',
+                        code, baked: 'film-element', anchor: fa, why: strip(s), cam });
+                }
+            }
+            // the ambience: the whole drawing standing as light
             if (Array.isArray(s.kfCommands) && s.kfCommands.length > 1)
                 beats.push({ at: +(s.at + (i === 0 ? 2 : 0.5)).toFixed(1), kind: 'sculpt',
                     prompt: 'frame ' + s.kfFrame + ' — the drawing itself, standing',
@@ -16138,7 +16256,7 @@ const TWIN = (() => {
             return true;
         } catch (e) { console.warn('[twin save]', e); return false; }
     }
-    return { showFilm, stop, performTwin, performAI, stopPerf, bake, bakeAI, analyze, transcribe, transcribeAI, saveTranscript, tick: tickAll,
+    return { showFilm, stop, performTwin, performAI, stopPerf, bake, bakeAI, analyze, transcribe, transcribeAI, saveTranscript, elements, compileFort, compileRig, sculpt, tick: tickAll,
         get playing() { return !!show || !!perf; }, get frame() { return show ? show.idx : -1; },
         get beat() { return perf ? perf.fired.size : -1; }, get lastFilm() { return lastOp; }, get lastTranscript() { return lastTranscript; } };
 })();
