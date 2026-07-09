@@ -70,23 +70,6 @@ body.menu-open #play-fab{display:none}
    menu — the score's turn to own center. */
 body.hud-live #play-fab{ left:auto!important; right:max(16px,env(safe-area-inset-right))!important; top:calc(var(--lane-top) + 56px)!important; transform:none!important; width:38px!important; min-width:0!important; padding:0!important; font-size:0!important; letter-spacing:0!important; }
 body.hud-live #play-fab::after{ content:'▶'; font-size:13px; }
-/* PRODUCTION BOARD — every actor, set piece and shot as a reviewable row:
-   stand-in → generate (real AI, per element) → approve; VIEW/JUMP frames it. */
-#board{position:fixed;left:50%;transform:translateX(-50%);top:calc(var(--lane-top) + 54px);bottom:max(165px,calc(env(safe-area-inset-bottom) + 155px));z-index:var(--z-modal);width:min(560px,calc(100vw - 20px));background:rgba(8,11,14,.96);border:1px solid rgba(25,230,200,.4);border-radius:14px;display:flex;flex-direction:column;overflow:hidden;backdrop-filter:blur(14px)}
-#board.gone{display:none}
-#board .board-head{display:flex;justify-content:space-between;align-items:center;padding:12px 14px;border-bottom:1px solid rgba(25,230,200,.25);color:#19e6c8;font-weight:800;letter-spacing:.14em;font-size:12px}
-#board .board-head button{background:none;border:1px solid rgba(255,255,255,.25);color:#ccc;border-radius:8px;width:30px;height:30px;cursor:pointer}
-#board-list{overflow-y:auto;flex:1;padding:10px 12px}
-#board-list h4{margin:10px 2px 6px;color:#8f9ca6;font-size:10px;letter-spacing:.18em}
-.board-row{display:flex;align-items:center;gap:8px;padding:8px 9px;margin-bottom:6px;background:rgba(255,255,255,.045);border:1px solid rgba(255,255,255,.09);border-radius:10px}
-.board-row .b-label{flex:1;min-width:0;color:#e8edf1;font-size:12px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.board-row .b-sub{display:block;color:#7d8892;font-size:10px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.board-row .b-state{flex:0 0 auto;font-size:9px;font-weight:800;letter-spacing:.08em;padding:4px 7px;border-radius:8px;background:rgba(255,210,63,.15);color:#ffd23f;border:1px solid rgba(255,210,63,.4)}
-.board-row .b-state.real{background:rgba(168,85,247,.15);color:#d8b4fe;border-color:rgba(168,85,247,.45)}
-.board-row .b-state.approved{background:rgba(0,255,136,.13);color:#6ef7b3;border-color:rgba(0,255,136,.4)}
-.board-row button{flex:0 0 auto;background:rgba(25,230,200,.12);border:1px solid rgba(25,230,200,.4);color:#19e6c8;border-radius:8px;font:700 10px/1 inherit;letter-spacing:.06em;padding:8px 9px;cursor:pointer;-webkit-tap-highlight-color:transparent}
-.board-row button.b-ok{background:rgba(0,255,136,.1);border-color:rgba(0,255,136,.4);color:#6ef7b3}
-.board-row button:disabled{opacity:.45}
 /* modal tier: every big panel shares one z value from the registry */
 #mp-modal,#api-modal,#bot-modal,#match-modal,#help-modal,#export-modal,#behavior-modal{ z-index:var(--z-modal)!important; }
 body.in-ritual #api-modal{ z-index:var(--z-top)!important; }
@@ -123,6 +106,10 @@ body.menu-open #toolbars { top:max(72px,calc(env(safe-area-inset-top) + 56px)); 
 #scene-graph .sg-group .sg-gcount{flex:0 0 auto;background:rgba(0,255,136,.22);border-radius:8px;padding:0 6px;color:#d6ffe9;font-size:9px}
 #scene-graph .sg-group .sg-gdel{flex:0 0 auto;background:none;border:0;color:#ff6a6a;cursor:pointer;font-size:11px;padding:0 2px;line-height:1}
 #scene-graph .sg-item.sg-child{padding-left:22px;opacity:.85}
+#scene-graph .sg-group.sg-film{background:rgba(168,85,247,.16);border-top-color:rgba(168,85,247,.4);color:#e9d5ff}
+#scene-graph .sg-group.sg-film .sg-gcount{background:rgba(168,85,247,.28);color:#f3e8ff}
+#scene-graph .sg-filmrow{border-color:rgba(168,85,247,.3);color:#d8c7ee}
+#scene-graph .sg-filmrow:hover{border-color:#a855f7;color:#fff}
 .sg-header { font-size: 11px; font-weight: 700; letter-spacing: 0.2em; padding: 10px; border-bottom: 1px solid #444; color: #00ff88; background: #000; }
 .sg-list { flex: 1; overflow-y: auto; padding: 8px; display: flex; flex-direction: column; gap: 4px; }
 .sg-item { font-size: 9px; letter-spacing: 0.1em; padding: 8px; border: 1px solid #444; cursor: pointer; color: #ccc; transition: all 0.2s; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: flex; justify-content: space-between; align-items: center;}
@@ -1431,13 +1418,6 @@ body.watcher-role #crosshair{display:none!important}
         <button class="tutor-skip" id="tutor-skip" type="button">skip</button>
         <button class="tutor-do" id="tutor-do" type="button"></button>
     </div>
-</div>
-<div id="board" class="gone">
-  <div class="board-head">
-    <span id="board-title">PRODUCTION BOARD</span>
-    <button id="board-close" type="button">✕</button>
-  </div>
-  <div id="board-list"></div>
 </div>
 <div id="help-modal">
     <div class="help-header">
@@ -8297,6 +8277,13 @@ function tagGeneratedGroup(meshes, label, kind){
     return gid;
 }
 window.__tagGeneratedGroup = tagGeneratedGroup;
+// Open the scene graph as the film's home, and keep it fresh while a film performs.
+window.__openFilmGraph = function(){
+    try {
+        const sg = document.getElementById('scene-graph'); if (sg) sg.classList.add('show');
+        updateSceneGraph();
+    } catch(e){ console.warn('[film graph]', e); }
+};
 function __sgItemRow(obj, indented, idx){
     const item = document.createElement('div');
     const isSel = obj.userData && obj.userData.id && sceneState.selectedId === obj.userData.id;
@@ -8340,10 +8327,55 @@ function repromptGroup(gid){
     } catch(_){}
 }
 window.__repromptGroup = repromptGroup;
+// ── FILM SECTIONS — the production board, folded INTO the scene graph ────────
+// When a film is composed, its cast / set / shots appear as native scene-graph
+// sections. Each node LINKS INTO the real builder: a cast node puts you in that
+// body and opens the HELLO ritual; a set node selects the piece and re-prompts
+// it in the WORLD builder; a shot node jumps the camera. No parallel modal —
+// the scene graph you already have becomes film-aware.
+function __filmSections(list){
+    const bp = window.TWIN && TWIN.lastBlueprint; if (!bp) return;
+    const head = (txt, hint) => { const h = document.createElement('div'); h.className = 'sg-group sg-film';
+        h.innerHTML = '<span class="sg-gname">' + txt + '</span><span class="sg-gcount">' + hint + '</span>'; list.appendChild(h); return h; };
+    const row = (name, tag, onClick) => { const r = document.createElement('div'); r.className = 'sg-item sg-child sg-filmrow';
+        r.innerHTML = '<span>' + name + '</span><span class="sg-type">' + tag + '</span>';
+        r.addEventListener('click', onClick); list.appendChild(r); return r; };
+    const findFort = id => { let hit = null; try { scene.traverse(o => { if (!hit && o.userData && o.userData.__fortId === id) hit = o; }); } catch(_){} return hit; };
+    const findBot = nm => (typeof localBots !== 'undefined') && localBots.find(b => b && !b.destroyed && b.name.toLowerCase().includes(String(nm).toLowerCase()));
+    // CAST — tap to inhabit + edit in HELLO
+    if (bp.cast && bp.cast.length){ head('🎭 CAST', 'edit in HELLO');
+        bp.cast.forEach(c => row(c.name.toUpperCase(), findBot(c.name) ? 'RIG' : 'STANDIN', () => {
+            try { window.BUS && BUS.say('play as ' + c.name, 'graph'); } catch(_){}
+            if (window.__openRitual) window.__openRitual();
+            notify('EDITING ' + c.name.toUpperCase() + ' — tap parts, say a change, done');
+        })); }
+    // SET — tap to frame + re-prompt in WORLD
+    if (bp.motifs && bp.motifs.length){ head('🏛️ THE SET', 'edit in WORLD');
+        bp.motifs.forEach((m, mi) => ['past','present','future'].forEach(form => {
+            const id = 'motif-' + mi + '-' + form;
+            row((m.name + ' · ' + form).toUpperCase(), findFort(id) ? 'BUILT' : 'PENDING', () => {
+                const o = findFort(id);
+                if (o){ try { selectObject(o); } catch(_){}
+                    try { camMode = 'FREE'; const c = new THREE.Box3().setFromObject(o).getCenter(new THREE.Vector3());
+                        camera.position.copy(c).add(new THREE.Vector3(1,0.6,1).normalize().multiplyScalar(28)); orbit.target.copy(c); } catch(_){}
+                }
+                try { const tab = document.getElementById('r-tab-world'); if (tab && window.__openRitual){ window.__openRitual(); tab.click(); const inp = document.getElementById('ritual-input'); if (inp){ inp.value = m[form] || m.name; inp.focus(); } } } catch(_){}
+                notify('EDIT SET IN WORLD: "' + (m[form] || m.name) + '" — send to regenerate');
+            });
+        })); }
+    // SHOTS — tap to jump the camera
+    if (bp.beats && bp.beats.length){ head('🎬 SHOTS', 'jump camera');
+        const FNC = { perception:'wide', action:'behind', affection:'close', opsign:'aerial', sonsign:'low', crystal:'wide', recollection:'wide' };
+        bp.beats.forEach((b, i) => { const cam = FNC[b.fn] || 'wide'; const subj = (b.subject || (bp.cast && bp.cast[0] && bp.cast[0].name) || 'me');
+            row('SHOT ' + (i+1) + ' · ' + cam.toUpperCase(), b.fn.slice(0,4).toUpperCase(), () => {
+                try { window.BUS && BUS.say('camera ' + cam + ' on ' + subj, 'graph'); } catch(_){}
+            }); }); }
+}
 function updateSceneGraph() {
     const list = document.getElementById('sg-list');
     if (!list) return;
     list.innerHTML = '';
+    try { __filmSections(list); } catch(e){ console.warn('[film sections]', e); }
     const groups = new Map(), solo = [];
     selectableObjects.forEach(obj => {
         const g = obj.userData && obj.userData.group;
@@ -15562,15 +15594,15 @@ function runCommand(text){
         if(/\b(compose|make|write|direct)\b.*\bfilm\b.*\babout\b|\bfilm about\b|\bcineosis\b/.test(t)){
             const seed = (t.split(/\babout\b/)[1] || t.replace(/\bcineosis\b/, '')).trim() || 'the storm gate';
             if (window.TWIN && TWIN.composeFilm) {
-                TWIN.composeFilm(seed).then(() => { try { window.BOARD && BOARD.open(); } catch(_){} });
-                return 'composing — the board opens with every actor, set piece and shot';
+                TWIN.composeFilm(seed).then(() => { try { window.__openFilmGraph && window.__openFilmGraph(); } catch(_){} });
+                return 'composing — cast, set & shots land in the SCENE GRAPH; tap any to edit in HELLO/WORLD';
             }
             return 'cineosis offline';
         }
-        // THE BOARD: see each one — every actor, set piece, and shot as rows
-        if(/\b(open|show|see)\b.*\bboard\b|\bsee the cast\b|\bproduction board\b/.test(t)){
-            const n = window.BOARD && BOARD.open();
-            return n ? ('the board — ' + n + ' items: VIEW frames each, GEN forges it real, JUMP flips shots') : 'no film yet — compose one first';
+        // THE FILM in the scene graph: cast / set / shots, each a handle into the builder
+        if(/\b(open|show|see)\b.*\b(board|cast|scene graph|film)\b|\bproduction board\b/.test(t)){
+            if (window.__openFilmGraph){ window.__openFilmGraph(); return 'scene graph — CAST edits in HELLO · SET edits in WORLD · SHOTS jump the camera'; }
+            return 'no film yet — compose one first';
         }
         // SHOW THE SCRIPT: read the composed blueprint back (also logged to AI·LOG)
         if(/\b(show|read|see)\b.*\b(script|screenplay|blueprint|beat sheet)\b|\bthe script\b/.test(t)){
@@ -16071,6 +16103,11 @@ const TWIN = (() => {
         } catch (e) { console.warn('[twin beat]', i, e); }
     }
     function performTwin(doc) {
+        // A film performs in the PLAY WORLD, never tangled in the HELLO rig-builder
+        // ritual. If we're still on the landing or mid-ritual, leave it first —
+        // otherwise the board and beats fire behind the ritual overlay ("I see
+        // none of these").
+        try { if ((document.body.classList.contains('in-ritual') || document.body.classList.contains('pre-enter')) && typeof window.releaseToSneak === 'function') window.releaseToSneak(); } catch(_){}
         stopPerf(); bake(doc);
         const beats = (doc.beats || []).slice().sort((a, b) => (a.at || 0) - (b.at || 0));
         if (!beats.length) { notify('TWIN HAS NO BEATS'); return { ok: false }; }
@@ -16110,6 +16147,7 @@ const TWIN = (() => {
             if (!perf.fired.has(i) && t >= (b.at || 0)) {
                 perf.fired.add(i);
                 fireBeat(b, i);
+                try { if (window.updateSceneGraph) updateSceneGraph(); } catch(_){}   // each new cast/set node appears live in the graph
                 notify('◉ ' + (i + 1) + '/' + perf.beats.length + ' ' + b.kind.toUpperCase() + ' — ' + String(b.prompt || '').slice(0, 44));
                 if (window.AICON) AICON.log('TWIN beat ' + (i + 1) + '/' + perf.beats.length + ' · ' + b.kind + (b.baked ? ' (' + b.baked + ')' : '') + ' · "' + String(b.prompt || '').slice(0, 40) + '"', 'ok');
             }
@@ -16484,126 +16522,6 @@ const TWIN = (() => {
         get beat() { return perf ? perf.fired.size : -1; }, get lastFilm() { return lastOp; }, get lastTranscript() { return lastTranscript; }, get lastBlueprint() { return lastBlueprint; } };
 })();
 window.TWIN = TWIN;
-
-// ── PRODUCTION BOARD — see each one, hello to each one ───────────────────────
-// Every actor, set piece and shot of the composed film as a reviewable row.
-// Stand-ins land instantly (goldens); GENERATE forges THAT element with the
-// real model (takes its time — that's the point); VIEW frustum-fits the camera
-// to the element so you always actually SEE what you built; SHOTS is a gallery
-// of every framing — jump between them; APPROVE tracks what's locked.
-const BOARD = (() => {
-    const el = () => document.getElementById('board');
-    const list = () => document.getElementById('board-list');
-    let items = [];   // {sec:'cast'|'set'|'shot', label, sub, state, name?, desc?, fortId?, anchor?, camType?, subject?}
-    const FNC = { perception: 'wide', action: 'behind', affection: 'close', opsign: 'aerial', sonsign: 'low', crystal: 'wide', recollection: 'wide' };
-    function build(bp) {
-        items = [];
-        (bp.cast || []).forEach(c => items.push({ sec: 'cast', label: c.name.toUpperCase(), sub: c.desc, state: 'standin', name: c.name, desc: c.desc }));
-        (bp.motifs || []).forEach((m, mi) => ['past', 'present', 'future'].forEach(form => items.push({
-            sec: 'set', label: (m.name + ' · ' + form).toUpperCase(), sub: m[form] || m.name, state: 'standin',
-            fortId: 'motif-' + mi + '-' + form, desc: m[form] || m.name,
-            anchor: { x: Math.round(Math.cos(mi * 2.1) * 26), z: Math.round(Math.sin(mi * 2.1) * 26) } })));
-        (bp.beats || []).forEach((b, i) => items.push({ sec: 'shot', label: 'SHOT ' + (i + 1) + ' · ' + (FNC[b.fn] || 'wide').toUpperCase(),
-            sub: '[' + b.fn + '/' + (b.layer || '') + '] ' + (b.title || b.action || ''), state: 'shot',
-            camType: FNC[b.fn] || 'wide', subject: (b.subject || (bp.cast && bp.cast[0] && bp.cast[0].name) || 'me') }));
-    }
-    function fitView(objs) {
-        const box = new THREE.Box3();
-        let any = false;
-        objs.forEach(o => { try { o.updateWorldMatrix(true, false); box.expandByObject(o); any = true; } catch(_){} });
-        if (!any || box.isEmpty()) return null;
-        const c = box.getCenter(new THREE.Vector3()), s = box.getSize(new THREE.Vector3());
-        const maxDim = Math.max(s.x, s.y, s.z, 2);
-        const dist = Math.max(6, (maxDim / 2) / Math.tan((camera.fov * Math.PI / 180) / 2) * 1.35);
-        camMode = 'FREE';
-        camera.position.copy(c).add(new THREE.Vector3(1, 0.55, 1).normalize().multiplyScalar(dist));
-        orbit.target.copy(c);
-        return { size: +maxDim.toFixed(1), dist: +dist.toFixed(1), center: [+c.x.toFixed(1), +c.y.toFixed(1), +c.z.toFixed(1)] };
-    }
-    const castBot = name => (typeof localBots !== 'undefined') && localBots.find(b => b && !b.destroyed && b.name.toLowerCase().includes(String(name).toLowerCase()));
-    const fortMeshes = id => { const out = []; try { scene.traverse(o => { if (o.userData && o.userData.__fortId === id) out.push(o); }); } catch(_){} return out; };
-    function view(i) {
-        const it = items[i]; if (!it) return null;
-        if (it.sec === 'shot') { return BUS.say('camera ' + it.camType + ' on ' + it.subject, 'board'); }
-        if (it.sec === 'cast') {
-            let b = castBot(it.name);
-            if (!b) { BUS.say('cast a ' + it.desc + ' named ' + it.name, 'board'); b = castBot(it.name); }
-            return b ? fitView([b.car]) : null;
-        }
-        const ms = fortMeshes(it.fortId);
-        return ms.length ? fitView(ms) : (notify('NOT BUILT YET — its beat has not fired (or GENERATE it now)'), null);
-    }
-    const RIG_SYS = 'You are a master vehicle artist for THUNDER RIGS. Reply with ONLY one JavaScript function, no fences, no prose:\nfunction build(g, VG, THREE){ ... }\nUse VG: box(w,h,d,m) cyl(r1,r2,h,m,seg) cone sphere ico torus + wheels knobbyWheel(r,w,hub)/slickWheel + materials paint(hex,{rough,metal}) matte metalMat goldMat emiss(hex,i) makeGlass + headlight(hex) glow(hex) contactShadow(w,d). Helpers INSIDE build. A drivable car-scale rig (~4x2x2 units), wheels grounded, under 200 meshes.';
-    const FORT_SYS = 'You are a fortification builder for THUNDER RIGS. Reply with ONLY one JavaScript function, no fences, no prose:\nfunction build(w, WG, THREE){ ... return w; }\nOne focal structure near the origin: WG.box/cyl/cone/sphere/torus + WG.flat(hex,{rough,metal})/WG.lit(hex,i); WG.put(mesh,x,y,z,ry) places, WG.solid(mesh,w,h,d) makes it collide; under 60 meshes; all parts within 12 units of origin; WG.rand(seed) for randomness.';
-    async function generate(i) {
-        const it = items[i]; if (!it || it.sec === 'shot') return;
-        let hasKey = false; try { hasKey = aiLocalAvailable(); } catch(_){}
-        if (!hasKey) { notify('REAL GENERATION NEEDS YOUR OPENAI KEY (menu → AI) — STAND-IN KEPT'); return render(); }
-        it.state = 'generating'; render();
-        notify('⚒ FORGING ' + it.label + ' — the model is working…');
-        try {
-            const sys = (it.sec === 'cast' ? RIG_SYS : FORT_SYS) + '\nDesign for: "' + String(it.desc).slice(0, 160) + '"';
-            const reply = await Promise.race([
-                requestAIText(String(it.desc), sys, null, 4000, { task: 'board-' + it.sec }),
-                new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 45000)),
-            ]);
-            const src = FORGE.sanitize(String(reply || ''));
-            const scan = FORGE.jsScan(src);
-            if (!/function\s+build\s*\(/.test(src) || scan.brace !== 0 || scan.paren !== 0) throw new Error('malformed code');
-            if (it.sec === 'cast') {
-                const g = window.__buildVehicleFromCode(src);
-                if (!g) throw new Error(window.__vgLastErr || 'rig forge rejected');
-                let b = castBot(it.name);
-                if (!b) { BUS.say('cast a ' + it.desc + ' named ' + it.name, 'board'); b = castBot(it.name); }
-                if (b) { const keep = b.car.position.clone(); scene.remove(b.car); b.spec = Object.assign({}, b.spec, { vcode: src }); b.car = buildCar(b.spec); b.car.position.copy(keep); scene.add(b.car); }
-            } else {
-                fortMeshes(it.fortId).forEach(m => { try { scene.remove(m);
-                    const pi = physicsMeshes.indexOf(m); if (pi >= 0) physicsMeshes.splice(pi, 1);
-                    const si = selectableObjects.indexOf(m); if (si >= 0) selectableObjects.splice(si, 1); } catch(_){} });
-                const r = window.__applyForgeFort(src, it.anchor, it.fortId);
-                if (!r || !r.ok) throw new Error((r && r.err) || 'fort forge rejected');
-                try { window.__broadcastFort(it.fortId, src, it.anchor); } catch(_){}
-            }
-            it.state = 'real'; notify('✓ ' + it.label + ' — REAL, MODEL-FORGED');
-            view(i);
-        } catch (e) { it.state = 'standin'; notify('✗ ' + it.label + ' — ' + String(e && e.message).slice(0, 50) + ' (stand-in kept)'); }
-        render();
-    }
-    function approve(i) { const it = items[i]; if (it && it.sec !== 'shot') { it.state = 'approved'; render(); } }
-    function render() {
-        const L = list(); if (!L) return;
-        const secs = [['cast', 'CAST — HELLO TO EACH'], ['set', 'THE SET — EACH PIECE'], ['shot', 'SHOTS — JUMP BETWEEN FRAMINGS']];
-        L.innerHTML = secs.map(([sec, title]) => {
-            const rows = items.map((it, i) => ({ it, i })).filter(x => x.it.sec === sec);
-            if (!rows.length) return '';
-            return '<h4>' + title + '</h4>' + rows.map(({ it, i }) =>
-                '<div class="board-row">' +
-                '<span class="b-label">' + it.label + '<span class="b-sub">' + (it.sub || '') + '</span></span>' +
-                (it.sec === 'shot'
-                    ? '<button data-a="view" data-i="' + i + '">JUMP</button>'
-                    : '<span class="b-state ' + it.state + '">' + it.state.toUpperCase() + '</span>' +
-                      '<button data-a="view" data-i="' + i + '">VIEW</button>' +
-                      '<button data-a="gen" data-i="' + i + '"' + (it.state === 'generating' ? ' disabled' : '') + '>GEN</button>' +
-                      '<button class="b-ok" data-a="ok" data-i="' + i + '">OK</button>') +
-                '</div>').join('');
-        }).join('');
-    }
-    function open(bp) {
-        bp = bp || (window.TWIN && TWIN.lastBlueprint);
-        if (!bp) { notify('NO FILM YET — "compose a film about <anything>"'); return false; }
-        build(bp); render();
-        const b = el(); if (b) b.classList.remove('gone');
-        return items.length;
-    }
-    function close() { const b = el(); if (b) b.classList.add('gone'); }
-    document.addEventListener('click', e => {
-        const btn = e.target.closest && e.target.closest('#board [data-a]');
-        if (btn) { const i = +btn.dataset.i; if (btn.dataset.a === 'view') view(i); else if (btn.dataset.a === 'gen') generate(i); else approve(i); return; }
-        if (e.target.closest && e.target.closest('#board-close')) close();
-    });
-    return { open, close, view, generate, approve, get items() { return items; } };
-})();
-window.BOARD = BOARD;
 
 async function aiForgeMechanic(text) {
     const doInstall = (code, name) => {
