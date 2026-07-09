@@ -15443,10 +15443,17 @@ function runCommand(text){
     const t=String(text||'').trim().toLowerCase(); if(!t) return 'type a command';
     try{
         // TWIN verbs — the drive-in film ("play the twin", "stop the twin")
-        if(/\btwin\b/.test(t)){
+        if(/\btwin\b|\btranscribe\b/.test(t)){
             if(/stop|end|kill|close/.test(t)){ const a = window.TWIN && TWIN.stop(); const b = window.TWIN && TWIN.stopPerf(); return (a || b) ? 'twin stopped' : 'no twin rolling'; }
+            // TRANSCRIBE: direct the loaded film into a prompted 3D performance
+            if(/transcribe|translate|direct|perform/.test(t)){
+                if(!window.TWIN || !TWIN.lastFilm) { document.getElementById('file-upload')?.click(); return 'load a source .twin.json first — then transcribe'; }
+                const tw = TWIN.transcribe(TWIN.lastFilm);
+                const r = TWIN.performTwin(tw);
+                return r.ok ? ('transcribed — ' + r.beats + ' beats from ' + tw.source.frames + ' frames, performing') : 'transcription empty';
+            }
             if(window.TWIN && TWIN.playing) return 'twin already rolling';
-            document.getElementById('file-upload')?.click(); return 'pick a .twin.json — a film screens, a beat-twin performs';
+            document.getElementById('file-upload')?.click(); return 'pick a .twin.json — a film screens, a beat-twin performs, "transcribe the twin" directs it in 3D';
         }
         // cinema verbs first — they are specific words and never collide with build verbs
         if(/\bcut\b|stop (the )?(rec|record|film|reel)/.test(t)){ CINE.cut(); return 'cut'; }
@@ -15708,7 +15715,8 @@ const GOLDEN_MECHANIC = { name: 'ring-run', code: [
 // matched shot list (establish → dolly → orbit) sized to the film's duration.
 // The film becomes a place you drive to — camera moves and everything to match.
 const TWIN = (() => {
-    let show = null;   // { frames, fps, w, h, ctx, tex, screen, idx, t0, raf, name }
+    let show = null;   // { frames, fps, w, h, ctx, tex, screen, idx, t0, name }
+    let lastOp = null; // the last loaded operator-twin — the source "transcribe the twin" reads
     function parseOperator(d) {
         const byId = {}; (d.nodes || []).forEach(n => { byId[n.id] = n; });
         const frames = (d.activePath || []).map(id => (byId[id] && byId[id].commands) || []);
@@ -15753,6 +15761,7 @@ const TWIN = (() => {
     }
     function showFilm(doc, opts = {}) {
         stop();
+        lastOp = doc;   // keep the source so "transcribe the twin" can direct from it
         const f = parseOperator(doc);
         if (!f.frames.length) { notify('TWIN EMPTY — NO COMMITTED FRAMES'); return { ok: false }; }
         const cv = document.createElement('canvas'); cv.width = f.w; cv.height = f.h;
@@ -15903,15 +15912,115 @@ const TWIN = (() => {
         }
         if (perf.fired.size === perf.beats.length && t > (perf.beats[perf.beats.length - 1].at || 0) + 8) { notify('TWIN COMPLETE'); perf = null; }
     }
+    // ── TRANSCRIBE — read a source film's structure, DIRECT a thunder-twin ───
+    // analyze(): pure signal extraction from the command stream — per-frame ink
+    // (drawn length/area), line-angle dominance (H/V/diagonal), centroid drift,
+    // and frame-to-frame change (command-set jaccard) -> CUT detection ->
+    // sections with {at, dur, energy, dom, drift}. transcribe(): each section
+    // becomes a PROMPTED beat (the deterministic poet below; transcribeAI hands
+    // the same digest to the model to write better prompts). The transcript is
+    // an UNBAKED thunder-twin: prompts only — bake/perform does the rest.
+    function analyze(doc, opts = {}) {
+        const byId = {}; (doc.nodes || []).forEach(n => { byId[n.id] = n; });
+        const frames = (doc.activePath || []).map(id => (byId[id] && byId[id].commands) || []);
+        const fps = doc.fps || 8;
+        const feats = cmds => {
+            let ink = 0, H = 0, V = 0, D = 0, cx = 0, n = 0, pts = 0;
+            for (const c of cmds) {
+                const p = c.split(' ');
+                if (p[0] === 'PNT') { ink += (+p[3] || 1) * (+p[4] || 1); pts++; cx += +p[1]; n++; }
+                else if (p[0] === 'LIN') {
+                    const dx = (+p[3]) - (+p[1]), dy = (+p[4]) - (+p[2]), L = Math.hypot(dx, dy); ink += L;
+                    const a = Math.abs(Math.atan2(dy, dx) * 180 / Math.PI) % 180;
+                    if (a < 20 || a > 160) H += L; else if (a > 70 && a < 110) V += L; else D += L;
+                    cx += ((+p[1]) + (+p[3])) / 2; n++;
+                }
+            }
+            return { ink, H, V, D, cx: cx / Math.max(1, n), pts };
+        };
+        const F = frames.map(feats);
+        const jac = (a, b) => { const A = new Set(a), B = new Set(b); let inter = 0; A.forEach(x => { if (B.has(x)) inter++; }); return 1 - inter / Math.max(1, A.size + B.size - inter); };
+        const diffs = [0]; for (let i = 1; i < frames.length; i++) diffs.push(jac(frames[i - 1], frames[i]));
+        // boundaries: strongest change spikes, 2s refractory, capped to maxBeats
+        const cands = []; let last = -Infinity;
+        for (let i = 1; i < diffs.length; i++) if (diffs[i] > 0.5 && i - last >= 2 * fps) { cands.push([diffs[i], i]); last = i; }
+        const maxB = opts.maxBeats || 8;
+        const chosen = cands.sort((a, b) => b[0] - a[0]).slice(0, maxB - 1).map(c => c[1]).sort((a, b) => a - b);
+        const bounds = [0, ...chosen, frames.length];
+        const sections = [];
+        for (let s = 0; s < bounds.length - 1; s++) {
+            const a = bounds[s], b = bounds[s + 1], seg = F.slice(a, b);
+            if (!seg.length) continue;
+            const ink = seg.reduce((x, f) => x + f.ink, 0) / seg.length;
+            const H = seg.reduce((x, f) => x + f.H, 0), V = seg.reduce((x, f) => x + f.V, 0), D = seg.reduce((x, f) => x + f.D, 0);
+            const dom = (V >= H && V >= D) ? 'vertical' : (D >= H ? 'diagonal' : 'horizontal');
+            const change = diffs.slice(a, b).reduce((x, d2) => x + d2, 0) / seg.length;
+            const pts = seg.reduce((x, f) => x + f.pts, 0) / seg.length;
+            sections.push({ at: +(a / fps).toFixed(1), dur: +((b - a) / fps).toFixed(1), ink: Math.round(ink), change: +change.toFixed(2), dom, drift: +(F[Math.min(b - 1, F.length - 1)].cx - F[a].cx).toFixed(1), pts: Math.round(pts), energy: +(Math.min(1, ink / 900) * 0.5 + Math.min(1, change / 0.6) * 0.5).toFixed(2) });
+        }
+        return { fps, dur: +(frames.length / fps).toFixed(1), frames: frames.length, sections, name: String(doc.root || 'film').slice(0, 20) };
+    }
+    // the deterministic poet: features -> prompt words (also the AI's few-shot)
+    function poet(sec, role) {
+        const pace = sec.energy > 0.6 ? 'storming' : sec.energy > 0.35 ? 'pulsing' : 'hushed';
+        const speed = sec.change > 0.4 ? 'fast' : 'slowly';
+        const form = sec.dom === 'vertical' ? (sec.pts > 40 ? 'a colonnade of light pylons' : 'a row of tall watchtowers')
+                   : sec.dom === 'diagonal' ? 'ramps and jagged lightning bolts'
+                   : (sec.pts > 60 ? 'a field of ember stones' : 'long low walls and decks');
+        if (role === 'world') return 'a ' + pace + ' neon night grid with ' + form + ' under flashing skies';
+        if (role === 'fort') return form + ', ' + pace;
+        if (role === 'motion') return 'everything ' + (sec.dom === 'vertical' ? 'bobs' : sec.dom === 'diagonal' ? 'spins' : 'floats') + ' ' + speed;
+        if (role === 'rig') return 'a ' + pace + ' storm-chaser rig with light strips';
+        return form;
+    }
+    function transcribe(doc, opts = {}) {
+        const A = doc.sections ? doc : analyze(doc, opts);
+        const beats = [];
+        const ring = i => { const a = i * 1.1 + 0.6; return [Math.round(Math.cos(a) * 34), 6 + (i % 3) * 4, Math.round(Math.sin(a) * 34)]; };
+        A.sections.forEach((s, i) => {
+            const cam = { p: ring(i), t: [0, 3, 0], travel: Math.max(1.5, Math.min(6, 3 / Math.max(0.15, s.change))) };
+            if (i === 0) { beats.push({ at: 0, kind: 'world', prompt: poet(s, 'world'), why: s, cam }); return; }
+            if (i === 1) { beats.push({ at: s.at, kind: 'rig', prompt: poet(s, 'rig'), why: s, cam: { ...cam, subject: 'player' } }); return; }
+            const roll = i % 3;
+            if (roll === 2) beats.push({ at: s.at, kind: 'fort', prompt: poet(s, 'fort'), why: s, anchor: { x: s.drift >= 0 ? 24 : -24, z: -14 - (i * 7) % 28 }, cam });
+            else if (roll === 0) beats.push({ at: s.at, kind: 'motion', prompt: poet(s, 'motion'), why: s, cam });
+            else beats.push({ at: s.at, kind: 'say', prompt: s.energy > 0.5 ? 'an overdrive pad here' : 'a cup at center', why: s, cam: { ...cam, subject: 'player' } });
+        });
+        return { format: 'thunder-rigs.twin/v1',
+            meta: { id: (A.name + '-transcribed').toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 40), name: (A.name + ' — TRANSCRIBED').toUpperCase(), description: 'Directed from the source film: ' + A.sections.length + ' sections over ' + A.dur + 's. Each beat carries its section features (why).' },
+            source: { format: 'operator-twin', frames: A.frames, fps: A.fps },
+            beats };
+    }
+    async function transcribeAI(doc, opts = {}) {
+        const A = doc.sections ? doc : analyze(doc, opts);
+        const fallback = transcribe(A, opts);
+        const digest = A.sections.map((s, i) => `s${i}: at ${s.at}s for ${s.dur}s · ink ${s.ink} · change ${s.change} · ${s.dom} lines · drift ${s.drift} · energy ${s.energy}`).join('\n');
+        const sys = 'You are a film DIRECTOR translating a dot-matrix film into a 3D driving-world performance.\n' +
+            'INPUT: per-section signal analysis of the source film. OUTPUT: ONLY a JSON array of beats, no prose, no fences:\n' +
+            '[{"at":sec,"kind":"world|rig|fort|motion|say","prompt":"...", "anchor":{"x":n,"z":n}(forts only)}]\n' +
+            'Rules: first beat at 0 is kind world (one evocative world prompt for the whole film); one rig beat early; forts/motions/says for the rest, at each section start. Prompts are SHORT physical descriptions (the engine forges geometry from them). motion prompts move existing things ("everything bobs fast"). say prompts are game verbs ("an overdrive pad here", "spawn 2 ally bots", "a cup at center").\n' +
+            'EXAMPLE OUTPUT (format, not content):\n' + JSON.stringify(fallback.beats.slice(0, 3).map(b => ({ at: b.at, kind: b.kind, prompt: b.prompt })), null, 0) + '\n' +
+            'SOURCE ANALYSIS (' + A.dur + 's, ' + A.frames + ' frames):\n' + digest;
+        try {
+            const reply = await requestAIText('direct this film', sys, null, 3000, { task: 'twin-transcribe' });
+            let t = String(reply || '').replace(/```json/gi, '').replace(/```/g, '').trim();
+            const a = t.indexOf('['), b = t.lastIndexOf(']');
+            if (a >= 0 && b > a) t = t.slice(a, b + 1);
+            const beats = JSON.parse(t).filter(x => x && x.kind && x.prompt && typeof x.at === 'number').slice(0, 12);
+            beats.forEach((x, i) => { const f = fallback.beats[Math.min(i, fallback.beats.length - 1)]; if (!x.cam && f) x.cam = f.cam; });
+            if (beats.length >= 3) return { ...fallback, beats, meta: { ...fallback.meta, description: fallback.meta.description + ' Directed by the model.' } };
+        } catch (e) { console.warn('[twin transcribeAI]', e && e.message); }
+        return fallback;
+    }
     async function performAI(doc, onBeat) {
         notify('AI BAKE — FORGING EVERY BEAT…');
         const s = await bakeAI(doc, onBeat);
         notify('BAKE DONE — ' + s.model + ' MODEL · ' + s.golden + ' GOLDEN');
         return performTwin(doc);
     }
-    return { showFilm, stop, performTwin, performAI, stopPerf, bake, bakeAI, tick: tickAll,
+    return { showFilm, stop, performTwin, performAI, stopPerf, bake, bakeAI, analyze, transcribe, transcribeAI, tick: tickAll,
         get playing() { return !!show || !!perf; }, get frame() { return show ? show.idx : -1; },
-        get beat() { return perf ? perf.fired.size : -1; } };
+        get beat() { return perf ? perf.fired.size : -1; }, get lastFilm() { return lastOp; } };
 })();
 window.TWIN = TWIN;
 
