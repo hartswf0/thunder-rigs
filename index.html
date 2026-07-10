@@ -516,8 +516,38 @@ body.in-ritual #post-tilt-top, body.in-ritual #post-tilt-bot{ display:none; }   
 </div>
 
 <!-- Scene Graph (Left Side) -->
+<style>
+/* THE LIBRARY panel (film/LIBRARY.md) — the studio's second tab */
+.sg-header .sg-tab{cursor:pointer;opacity:.45;letter-spacing:.18em;}
+.sg-header .sg-tab.active{opacity:1;}
+.sg-header .sg-tab+.sg-tab{margin-left:10px;}
+#lib-panel{display:none;flex-direction:column;gap:8px;padding:10px;overflow-y:auto;flex:1;min-height:0;}
+#scene-graph.lib-mode #lib-panel{display:flex;}
+#scene-graph.lib-mode #film-composer,#scene-graph.lib-mode #sg-list{display:none!important;}
+#lib-search{background:rgba(255,255,255,.05);border:1px solid rgba(25,230,200,.35);color:#e8fffb;border-radius:8px;font:inherit;font-size:11px;padding:7px 9px;outline:none;}
+.lib-chips{display:flex;flex-wrap:wrap;gap:5px;}
+.lib-chip{background:none;border:1px solid #3a4448;color:#9aa0a6;border-radius:14px;font:inherit;font-size:9px;letter-spacing:.06em;padding:3px 9px;cursor:pointer;}
+.lib-chip.on{border-color:#19e6c8;color:#19e6c8;background:rgba(25,230,200,.10);}
+.lib-sect{font-size:9px;font-weight:800;letter-spacing:.22em;color:#9aa0a6;margin-top:3px;}
+.lib-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;}
+.lib-card{position:relative;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.12);border-radius:9px;overflow:hidden;display:flex;flex-direction:column;}
+.lib-card .lc-th{width:100%;aspect-ratio:4/3;background:linear-gradient(140deg,#0d2a26,#101a22);object-fit:cover;display:block;}
+.lib-card .lc-nm{font-size:9px;font-weight:800;letter-spacing:.06em;color:#e8fffb;padding:5px 7px 1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.lib-card .lc-mt{display:flex;align-items:center;gap:4px;font-size:8px;color:#9aa0a6;padding:0 7px 6px;}
+.lib-card .lc-mt .mood{color:#d8b4fe;}
+.lib-card .lc-fav{position:absolute;top:4px;right:4px;background:rgba(6,12,14,.6);border:none;color:#666;font-size:11px;cursor:pointer;border-radius:6px;padding:2px 5px;}
+.lib-card .lc-fav.on{color:#ffd23f;}
+.lib-card .lc-add{position:absolute;top:4px;left:4px;background:rgba(25,230,200,.88);border:none;color:#04211d;font:800 11px/1 inherit;cursor:pointer;border-radius:6px;padding:3px 7px;}
+.lib-card .lc-prov{position:absolute;bottom:34px;right:4px;font-size:7px;letter-spacing:.1em;color:#ffd23f;background:rgba(6,12,14,.65);border-radius:4px;padding:1px 4px;}
+</style>
 <div id="scene-graph">
-    <div class="sg-header"><span>FILM STUDIO</span><button id="sg-close" type="button" aria-label="close">✕</button></div>
+    <div class="sg-header"><span><span class="sg-tab active" id="sg-tab-film">FILM STUDIO</span><span class="sg-tab" id="sg-tab-lib">LIBRARY</span></span><button id="sg-close" type="button" aria-label="close">✕</button></div>
+    <div id="lib-panel">
+        <input id="lib-search" type="text" autocomplete="off" spellcheck="false" placeholder="search everything ever made">
+        <div class="lib-chips" id="lib-kinds"></div>
+        <div class="lib-chips" id="lib-moods"></div>
+        <div id="lib-body"></div>
+    </div>
     <div id="film-composer">
         <button id="film-ai-status" type="button"></button>
         <div id="film-ai-setup" class="hidden">
@@ -585,6 +615,85 @@ body.in-ritual #post-tilt-top, body.in-ritual #post-tilt-bot{ display:none; }   
         const p = document.getElementById('scene-graph'); if (p) p.classList.add('show');
         setTimeout(() => { try { inp.focus(); } catch(_){} }, 80);
     });
+})();
+// ── THE LIBRARY panel (film/LIBRARY.md) — browse everything ever kept ────────
+// Search / kind tabs / mood chips / recently used / favorites; + places the
+// entry at a mark (placeholder-first). Reads window.LIBRARY (the persisted
+// shelf); refreshed whenever something new is kept.
+(function libraryPanel(){
+    const panel = document.getElementById('scene-graph');
+    const tabF = document.getElementById('sg-tab-film'), tabL = document.getElementById('sg-tab-lib');
+    const body = document.getElementById('lib-body'), search = document.getElementById('lib-search');
+    const kindsEl = document.getElementById('lib-kinds'), moodsEl = document.getElementById('lib-moods');
+    if (!panel || !tabL || !body) return;
+    const F = { q: '', kind: 'all', mood: null, favs: false };
+    const KINDS = [['all', 'ALL'], ['character', 'CHARACTERS'], ['structure', 'STRUCTURES'], ['favs', '♥ FAVES']];
+    function chipRow(el, defs, isOn, onPick){
+        el.innerHTML = '';
+        defs.forEach(([val, lab]) => {
+            const b = document.createElement('button'); b.type = 'button';
+            b.className = 'lib-chip' + (isOn(val) ? ' on' : '');
+            b.textContent = lab;
+            b.addEventListener('click', () => { onPick(val); render(); });
+            el.appendChild(b);
+        });
+    }
+    function card(e){
+        const c = document.createElement('div'); c.className = 'lib-card';
+        if (e.thumb){ const im = document.createElement('img'); im.className = 'lc-th'; im.src = e.thumb; im.alt = e.name; c.appendChild(im); }
+        else { const ph = document.createElement('div'); ph.className = 'lc-th'; ph.style.cssText += 'display:flex;align-items:center;justify-content:center;color:#1f6b60;font-size:20px;'; ph.textContent = e.kind === 'character' ? '◇' : '⌂'; c.appendChild(ph); }
+        const add = document.createElement('button'); add.className = 'lc-add'; add.textContent = '+'; add.title = 'place at a mark in front of you';
+        add.addEventListener('click', () => { try { window.LIBRARY.place(e.id); } catch(err){ console.warn('[lib]', err); } });
+        c.appendChild(add);
+        const fav = document.createElement('button'); fav.className = 'lc-fav' + (e.favorite ? ' on' : ''); fav.textContent = '♥'; fav.title = 'favorite';
+        fav.addEventListener('click', () => { window.LIBRARY.favorite(e.id); render(); });
+        c.appendChild(fav);
+        const pv = document.createElement('div'); pv.className = 'lc-prov'; pv.textContent = e.provenance.toUpperCase(); c.appendChild(pv);
+        const nm = document.createElement('div'); nm.className = 'lc-nm'; nm.textContent = e.name; c.appendChild(nm);
+        const mt = document.createElement('div'); mt.className = 'lc-mt';
+        mt.innerHTML = '<span>' + (e.kind === 'character' ? 'character' : 'structure') + '</span><span class="mood">· ' + (e.mood || '') + '</span>';
+        c.appendChild(mt);
+        return c;
+    }
+    function grid(list){
+        const g = document.createElement('div'); g.className = 'lib-grid';
+        list.forEach(e => g.appendChild(card(e)));
+        return g;
+    }
+    function render(){
+        if (!window.LIBRARY) return;
+        chipRow(kindsEl, KINDS, v => (v === 'favs' ? F.favs : (!F.favs && F.kind === v)),
+            v => { if (v === 'favs'){ F.favs = !F.favs; } else { F.favs = false; F.kind = v; } });
+        chipRow(moodsEl, LIBRARY.MOODS.map(m => [m, m.toUpperCase()]), v => F.mood === v, v => { F.mood = (F.mood === v ? null : v); });
+        const all = LIBRARY.entries.slice();
+        const match = e =>
+            (!F.q || (e.name + ' ' + e.prompt + ' ' + e.mood).toLowerCase().includes(F.q)) &&
+            (F.kind === 'all' || e.kind === F.kind) &&
+            (!F.mood || e.mood === F.mood) &&
+            (!F.favs || e.favorite);
+        const hits = all.filter(match);
+        body.innerHTML = '';
+        const recent = hits.filter(e => e.usedAt > 0).sort((a, b) => b.usedAt - a.usedAt).slice(0, 4);
+        if (recent.length && !F.q){
+            const h = document.createElement('div'); h.className = 'lib-sect'; h.textContent = 'RECENTLY USED'; body.appendChild(h);
+            body.appendChild(grid(recent));
+        }
+        const h2 = document.createElement('div'); h2.className = 'lib-sect';
+        h2.textContent = 'EVERYTHING KEPT · ' + hits.length; body.appendChild(h2);
+        body.appendChild(grid(hits));
+        if (!hits.length){ const none = document.createElement('div'); none.style.cssText = 'color:#9aa0a6;font-size:10px;padding:8px 2px;'; none.textContent = 'nothing here yet — generate in the FILM tab; everything is kept'; body.appendChild(none); }
+    }
+    function setTab(lib){
+        panel.classList.toggle('lib-mode', lib);
+        tabL.classList.toggle('active', lib);
+        tabF.classList.toggle('active', !lib);
+        if (lib) render();
+    }
+    tabF.addEventListener('click', () => setTab(false));
+    tabL.addEventListener('click', () => setTab(true));
+    search.addEventListener('input', () => { F.q = search.value.trim().toLowerCase(); render(); });
+    window.__libRefresh = function(){ if (panel.classList.contains('lib-mode')) render(); };
+    window.__openLibrary = function(){ panel.classList.add('show'); setTab(true); };
 })();
 </script>
 
@@ -8478,6 +8587,29 @@ function deleteGroup(gid){
     updateSceneGraph();
 }
 window.__deleteGroup = deleteGroup;
+// ── MOVE A WHOLE GROUP AS ONE ────────────────────────────────────────────────
+// Generated structures land as many meshes; moving them piece-by-piece is not
+// usable. ✥ on a group header attaches the gizmo to an invisible proxy at the
+// group's center — dragging it carries EVERY member (and, for ledger entities,
+// writes the row's sovereign placement on release).
+let __grpProxy = null;
+function __groupMove(gid){
+    const members = selectableObjects.filter(o => o.userData && o.userData.group === gid && !o.userData.__ghost);
+    if (!members.length){ notify('empty group'); return; }
+    if (__grpProxy){ try { transform.detach(); scene.remove(__grpProxy); } catch(_){} __grpProxy = null; }
+    const box = new THREE.Box3(); members.forEach(m => { try { box.expandByObject(m); } catch(_){} });
+    const c = box.getCenter(new THREE.Vector3()); c.y = Math.max(0.6, box.min.y + 0.6);
+    const proxy = new THREE.Group();
+    proxy.position.copy(c);
+    proxy.userData = { id: 'grpmove-' + gid, name: 'GROUP MOVE', label: 'GROUP MOVE', type: 'group-mover', isAssembly: true,
+        __groupMove: { gid, members, prev: c.clone(), total: new THREE.Vector3() } };
+    scene.add(proxy); __grpProxy = proxy;
+    try { if (transform.setMode) transform.setMode('translate'); } catch(_){}
+    try { sceneState.selectedId = proxy.userData.id; } catch(_){}
+    transform.attach(proxy);
+    notify('✥ DRAG THE GIZMO — the whole group moves as one (click elsewhere to release)');
+}
+window.__groupMove = __groupMove;
 function repromptGroup(gid){
     const m = selectableObjects.find(o => o.userData && o.userData.group === gid);
     if (!m) return;
@@ -8640,6 +8772,13 @@ window.LEDGER = (() => {
     function compose(bp){
         all().forEach(r => { if (r.state === 'planned') delete rows[r.id]; });
         clearAllGhosts();
+        // THE RIG YOU DRIVE IS IN THE FILM: a standing cast row for the player —
+        // shots frame it, the river links to it, games are played in it.
+        try { if (typeof playerCar !== 'undefined' && playerCar){
+            const you = upsert('you', { kind: 'cast', name: 'you', prompt: 'the rig you drive',
+                provenance: 'hand', state: 'placed', physics: 'solid', verbs: ['drive'], tags: ['character'] });
+            you.object = playerCar;
+        } } catch(_){}
         // cast — fanned marks in an arc in front of the player
         (bp.cast || []).forEach((c, i) => {
             const id = 'cast-' + i;
@@ -8682,6 +8821,8 @@ window.LEDGER = (() => {
     // something real, at its real size.
     function findByName(name){
         const n = String(name || '').toLowerCase().trim(); if (!n) return null;
+        // the driven rig is cast too: me/player/you resolve to the 'you' row
+        if (/^(me|you|player|my rig|myself)$/.test(n) && rows.you && rows.you.object) return rows.you;
         const live = all().filter(r => (r.object && r.object.parent) || (r.meshes && r.meshes.some(m => m.parent)));
         return live.find(r => r.name && n === r.name.toLowerCase())
             || live.find(r => r.name && (n.includes(r.name.toLowerCase()) || r.name.toLowerCase().includes(n)))
@@ -8698,10 +8839,161 @@ window.LEDGER = (() => {
         const r = rows[id]; if (!r) return false;
         return !!((r.object && r.object.parent) || (r.meshes && r.meshes.some(m => m.parent)));
     }
+    // AUTO-THUMBNAIL (film/LIBRARY.md): every entry is PICTURED at bake time —
+    // a one-off offscreen render of the live scene, camera frustum-fit on the
+    // entity, saved as a small dataURL on the row. The row IS the library card.
+    let thumbGL = null, thumbCam = null;
+    function thumbnail(id){
+        const f = frame(id); if (!f) return null;
+        try {
+            if (!thumbGL){
+                thumbGL = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+                thumbGL.setSize(128, 96);
+                thumbGL.setClearColor(0x0a1214, 1);
+            }
+            if (!thumbCam) thumbCam = new THREE.PerspectiveCamera(45, 128 / 96, 0.1, 600);
+            const d = Math.max(5, f.radius * 2.7);
+            thumbCam.position.set(f.center.x + d * 0.6, f.center.y + d * 0.5, f.center.z + d * 0.65);
+            thumbCam.lookAt(f.center);
+            thumbGL.render(scene, thumbCam);
+            const url = thumbGL.domElement.toDataURL('image/jpeg', 0.6);
+            const r = rows[id]; if (r) r.thumb = url;
+            return url;
+        } catch(e){ console.warn('[thumb]', e); return null; }
+    }
+    // everything generated is KEPT: picture the row, then shelve it forever
+    function pictureAndKeep(id){
+        setTimeout(() => { try { thumbnail(id); if (window.LIBRARY) LIBRARY.keep(rows[id]); } catch(_){} }, 140);
+    }
+    // snapshot the live scene from any eye — the SHOT RIVER's card renderer
+    function snapFrom(p, t){
+        try {
+            if (!thumbGL){
+                thumbGL = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+                thumbGL.setSize(128, 96);
+                thumbGL.setClearColor(0x0a1214, 1);
+            }
+            if (!thumbCam) thumbCam = new THREE.PerspectiveCamera(45, 128 / 96, 0.1, 600);
+            thumbCam.position.set(p[0], p[1], p[2]);
+            thumbCam.lookAt(new THREE.Vector3(t[0], t[1], t[2]));
+            thumbGL.render(scene, thumbCam);
+            return thumbGL.domElement.toDataURL('image/jpeg', 0.6);
+        } catch(e){ return null; }
+    }
     return { rows, upsert, get, all, ghost, clearGhostsFor, clearAllGhosts, setObject, setMeshes,
-        removeBuiltFort, syncFromObject, spent, precheck, bounds, compose, findByName, frame, isLive, BUDGET };
+        removeBuiltFort, syncFromObject, spent, precheck, bounds, compose, findByName, frame, isLive,
+        thumbnail, pictureAndKeep, snapFrom, BUDGET };
 })();
 window.__ledgerCompose = bp => { try { return LEDGER.compose(bp); } catch(e){ console.warn('[ledger compose]', e); return 0; } };
+// ── THE LIBRARY (film/LIBRARY.md) — the holy place: everything generated is
+// KEPT the moment it exists — pictured, named, mood-tagged, provenance-marked,
+// placeable again forever. The LEDGER row IS the library entry (same record,
+// two views); this shelf persists it across reloads. Goldens are the founding
+// donation.
+window.LIBRARY = (() => {
+    const KEY = 'trig.library.v1', CAP = 48;
+    const MOODS = ['haunting', 'stormy', 'abandoned', 'mysterious', 'serene'];
+    let entries = null;
+    function moodOf(text){
+        const t = String(text || '').toLowerCase();
+        if (/storm|thunder|lightning|rain|tempest|gale/.test(t)) return 'stormy';
+        if (/ruin|broken|dead|fallen|rust|ash|lost|drowned|hollow/.test(t)) return 'abandoned';
+        if (/ghost|memory|remember|haunt|faded|echo|residue|past/.test(t)) return 'haunting';
+        if (/garden|calm|still|quiet|serene|meadow|lantern|warm/.test(t)) return 'serene';
+        return 'mysterious';
+    }
+    function hash(code){ try { return window.FORGE ? String(FORGE.fnv1a(String(code))) : 'h' + String(code).length + String(code).slice(0, 12); } catch(_){ return 'h' + String(code || '').length; } }
+    function seed(){
+        // goldens: the founding donation, provenance never lied about
+        try { Object.entries((window.GOLDEN && GOLDEN.LIBRARY) || {}).slice(0, 6).forEach(([id, g]) => entries.push({
+            id: 'lib-g-' + id, hash: hash(g.code), kind: 'character', name: String(g.name || id).slice(0, 22),
+            prompt: String(g.keywords || '').split(/\s+/).slice(0, 6).join(' '), code: g.code,
+            provenance: 'golden', thumb: null, mood: moodOf(g.keywords || g.name), favorite: false, usedAt: 0 })); } catch(_){}
+        try { Object.entries((window.GOLDEN_DRAFTS && GOLDEN_DRAFTS.DRAFTS) || {}).slice(0, 6).forEach(([id, g]) => entries.push({
+            id: 'lib-g-' + id, hash: hash(g.code), kind: 'structure', name: String(g.name || id).slice(0, 22),
+            prompt: String(g.keywords || '').split(/\s+/).slice(0, 6).join(' '), code: g.code,
+            provenance: 'golden', thumb: null, mood: moodOf(g.keywords || g.name), favorite: false, usedAt: 0 })); } catch(_){}
+    }
+    function load(){
+        if (entries) return entries;
+        try { entries = JSON.parse(localStorage.getItem(KEY) || 'null'); } catch(_){ entries = null; }
+        if (!Array.isArray(entries)){ entries = []; seed(); save(); }
+        // one entry per distinct code — early builds double-shelved goldens
+        const seen = new Set();
+        entries = entries.filter(e => { if (!e || !e.code || seen.has(e.code)) return false; seen.add(e.code); return true; });
+        return entries;
+    }
+    function save(){
+        try { localStorage.setItem(KEY, JSON.stringify(entries.slice(0, CAP))); }
+        catch(_){ try { entries.slice(16).forEach(x => { x.thumb = null; }); localStorage.setItem(KEY, JSON.stringify(entries.slice(0, CAP))); } catch(_2){} }
+    }
+    // KEEP: a ledger row with forged code becomes (or refreshes) a shelf entry
+    function keep(row){
+        if (!row || !row.code) return null;
+        load();
+        const h = hash(row.code);
+        let e = entries.find(x => x.code === row.code) || entries.find(x => x.hash === h);
+        if (!e){
+            e = { id: 'lib-' + h, hash: h, kind: row.kind === 'cast' ? 'character' : 'structure',
+                name: String(row.name || row.prompt || 'kept').slice(0, 22), prompt: row.prompt || '',
+                code: row.code, provenance: row.provenance || 'model', thumb: row.thumb || null,
+                mood: row.mood || moodOf((row.prompt || '') + ' ' + (row.name || '')), favorite: !!row.favorite, usedAt: Date.now() };
+            entries.unshift(e);
+            if (entries.length > CAP) entries.length = CAP;
+        } else {
+            e.usedAt = Date.now();
+            if (row.thumb) e.thumb = row.thumb;
+        }
+        row.mood = row.mood || e.mood;
+        save();
+        try { if (window.__libRefresh) __libRefresh(); } catch(_){}
+        return e;
+    }
+    function favorite(id, v){ load(); const e = entries.find(x => x.id === id); if (e){ e.favorite = (v == null) ? !e.favorite : !!v; save(); } return e && e.favorite; }
+    // + PLACES AT A MARK (LEDGER inv. 7): placeholder-first, then the kept code
+    // builds INTO that row — the library is the palette, the world is the canvas.
+    function place(id){
+        load();
+        const e = entries.find(x => x.id === id); if (!e) return null;
+        const rowId = 'lib-' + Date.now().toString(36);
+        let mark;
+        try { const fwd = new THREE.Vector3(Math.sin(P.yaw), 0, Math.cos(P.yaw)); mark = P.pos.clone().addScaledVector(fwd, 14); }
+        catch(_){ mark = new THREE.Vector3(0, 0, -16); }
+        const kind = e.kind === 'character' ? 'cast' : 'set';
+        const row = LEDGER.upsert(rowId, { kind, name: e.name, prompt: e.prompt, code: e.code,
+            provenance: e.provenance, mood: e.mood, state: 'planned',
+            placement: { x: +mark.x.toFixed(2), z: +mark.z.toFixed(2), ry: (typeof P !== 'undefined' && P.yaw != null) ? +(P.yaw + Math.PI).toFixed(3) : 0 } });
+        LEDGER.ghost(rowId, e.name, kind, row.placement);
+        setTimeout(() => {
+            try {
+                if (kind === 'cast'){
+                    const group = window.__buildVehicleFromCode(e.code);
+                    if (!group){ notify('✗ could not rebuild ' + e.name); return; }
+                    group.position.set(row.placement.x, group.position.y, row.placement.z);
+                    group.rotation.y = row.placement.ry || 0;
+                    group.userData = Object.assign(group.userData || {}, { id: (crypto.randomUUID ? crypto.randomUUID() : 'lb' + Date.now()), name: e.name, label: e.name, type: 'cast-actor', isAssembly: true });
+                    scene.add(group);
+                    try { selectableObjects.push(group); } catch(_){}
+                    LEDGER.setObject(rowId, group);
+                    LEDGER.upsert(rowId, { cert: { meshes: (() => { let n = 0; try { group.traverse(o => { if (o.isMesh) n++; }); } catch(_){} return n; })() }, verbs: ['patrol', 'orbit', 'guard', 'freeze'] });
+                } else {
+                    const r = window.__applyForgeFort(e.code, { x: row.placement.x, z: row.placement.z }, rowId);
+                    if (!r || !r.ok){ notify('✗ could not rebuild ' + e.name); return; }
+                    LEDGER.setMeshes(rowId, (r.wg && r.wg.pending || []).map(s => s.mesh), r.cert);
+                }
+                e.usedAt = Date.now(); save();
+                LEDGER.pictureAndKeep(rowId);
+                try { if (typeof spark === 'function') spark(new THREE.Vector3(row.placement.x, 1, row.placement.z), 0x19e6c8, 12, 26, 10, 0.7); if (window.SFX && SFX.complete) SFX.complete(); } catch(_){}
+                notify('◈ ' + e.name.toUpperCase() + ' PLACED FROM THE LIBRARY');
+                try { if (window.__libRefresh) __libRefresh(); } catch(_){}
+                try { if (typeof updateSceneGraph === 'function') updateSceneGraph(); } catch(_){}
+            } catch(err){ console.warn('[library place]', err); notify('✗ place failed'); }
+        }, 260);   // the placeholder is SEEN standing first — placement before body
+        return rowId;
+    }
+    return { load, save, keep, favorite, place, moodOf, MOODS,
+        get entries(){ return load(); } };
+})();
 const FNCAM = { perception:'wide', action:'behind', affection:'close', opsign:'aerial', sonsign:'low', crystal:'front', recollection:'close' };
 const __RIG_SYS = 'You are a master vehicle artist for THUNDER RIGS. Reply with ONLY one JavaScript function, no fences, no prose:\nfunction build(g, VG, THREE){ ... }\nHARD CONTRACT (violations = the rig is rejected):\n- Add EVERY part to the PROVIDED group g (g.add(part)). NEVER create your own root group, NEVER return a value — build() returns nothing.\n- VG.box(w,h,d,m) VG.cyl(r1,r2,h,m,seg) VG.cone VG.sphere VG.ico VG.torus(r,t,m) RETURN FINISHED MESHES (geometry+material applied). Position them and g.add them. NEVER wrap them in new THREE.Mesh, never pass them as geometry.\n- Materials: paint(hex,{rough,metal}) matte metalMat goldMat emiss(hex,i) makeGlass; details: headlight(hex) glow(hex) knobbyWheel(r,w,hub) slickWheel contactShadow(w,d).\nA drivable car-scale rig (~4x2x2 units), wheels grounded, under 200 meshes. Helpers INSIDE build.';
 const __FORT_SYS = 'You are a fortification builder for THUNDER RIGS. Reply with ONLY one JavaScript function, no fences, no prose:\nfunction build(w, WG, THREE){ ... return w; }\nOne focal structure near the origin: WG.box/cyl/cone/sphere/torus + WG.flat(hex,{rough,metal})/WG.lit(hex,i); WG.put(mesh,x,y,z,ry) places, WG.solid(mesh,w,h,d) makes it collide; under 60 meshes; all parts within 12 units of origin; WG.rand(seed) for randomness.';
@@ -8781,12 +9073,45 @@ async function __genCast(i){
     LEDGER.setObject(id, group);
     LEDGER.upsert(id, { code, provenance: forged.real ? 'model' : 'golden', physics: 'visual',
         cert: { meshes: (() => { let n = 0; try { group.traverse(o => { if (o.isMesh) n++; }); } catch(_){} return n; })() } });
+    LEDGER.pictureAndKeep(id);   // pictured + shelved the moment it exists (LIBRARY.md)
     try { camMode = 'FREE'; camera.position.copy(spot).add(new THREE.Vector3(5, 4, 9)); orbit.target.copy(spot.clone().setY(1.2)); } catch(_){}
     try { if (typeof spark === 'function') spark(spot.clone().setY(1), 0x19e6c8, 14, 30, 12, 0.8); if (typeof SFX!=='undefined' && SFX.complete) SFX.complete(); } catch(_){}
     __filmBuilt.add('cast:' + c.name);
     notify('✓ ' + c.name.toUpperCase() + ' ON SET' + (forged.real ? ' · model' : ' · stand-in'));
     try { updateSceneGraph(); } catch(_){}
 }
+// ── CAST AS BOTS — play your film ────────────────────────────────────────────
+// The film's characters become PLAYABLE opponents: each cast row's forged body
+// spawns as a bot AT ITS MARK (same entity, now driving). Open GAMES and play
+// striker/flag against your own cast — playing films is how movies get made.
+function __castToBots(){
+    if (!window.LEDGER) return 0;
+    const rowsC = LEDGER.all().filter(r => r.kind === 'cast' && r.id !== 'you' && r.code && LEDGER.isLive(r.id));
+    if (!rowsC.length){ notify('NO BUILT CAST — GEN the cast first'); return 0; }
+    let n = 0;
+    rowsC.forEach(r => {
+        try {
+            if (typeof localBots !== 'undefined' && localBots.some(b => b && b.name && !b.destroyed && b.name.toLowerCase() === r.name.toLowerCase())) return;
+            // release the static actor body; the bot takes over the row
+            const castKey = Object.keys(__castActors).find(k => __castActors[k] && __castActors[k].name === r.name);
+            if (castKey) __removeCastActor(castKey);
+            if (r.object) r.object = null;   // already disposed above (or never was a static body)
+            const bot = deployBot({ team: 'hostile', vcode: r.code, name: r.name, pos: { x: r.placement.x, z: r.placement.z } });
+            if (bot){
+                LEDGER.setObject(r.id, bot.car);   // the row's live body IS the playing bot
+                r.physics = 'solid'; r.state = 'performing';
+                if (r.verbs.indexOf('play') < 0) r.verbs.push('play');
+                n++;
+            }
+        } catch(e){ console.warn('[cast bots]', e); }
+    });
+    if (n){ notify('⚔ ' + n + ' CAST NOW PLAYING — open GAMES (▶ PLAY) and pick a match against them');
+        if (window.AICON) AICON.log('CAST → BOTS · ' + n + ' characters playing', 'ok'); }
+    else notify('cast already playing — open GAMES (▶ PLAY)');
+    try { updateSceneGraph(); } catch(_){}
+    return n;
+}
+window.__castToBots = __castToBots;
 // become a cast actor's rig and open HELLO to edit it — "hello to cast"
 function __editCastInHello(i){
     const id = 'cast-' + i, a = __castActors[id];
@@ -8813,6 +9138,7 @@ async function __genSet(mi, form){
         if (r && r.ok){
             LEDGER.setMeshes(id, (r.wg && r.wg.pending || []).map(s => s.mesh), r.cert);
             LEDGER.upsert(id, { code: forged.src, provenance: forged.real ? 'model' : 'golden' });
+            LEDGER.pictureAndKeep(id);
             try { window.__broadcastFort(id, forged.src, anchor); } catch(_){} __filmBuilt.add('set:' + mi + ':' + form); notify('✓ "' + prompt.slice(0,30) + '"' + (forged.real ? ' — MODEL' : ' — stand-in')); }
         else { row.state = 'planned'; notify('✗ forge rejected'); } }
     else { row.state = 'planned'; }
@@ -8864,6 +9190,7 @@ async function __stageShot(i){
         if (r && r.ok){ __filmBuilt.add('shot:' + i);
             LEDGER.setMeshes(id, (r.wg && r.wg.pending || []).map(s => s.mesh), r.cert);
             LEDGER.upsert(id, { code: forged.src, provenance: forged.real ? 'model' : 'golden' });
+            LEDGER.pictureAndKeep(id);
             try { window.__broadcastFort(id, forged.src, anchor); } catch(_){}
             let c;
             try { camMode = 'FREE'; c = new THREE.Vector3(anchor.x, 3, anchor.z);
@@ -8877,12 +9204,14 @@ async function __stageShot(i){
 }
 window.__stageShot = __stageShot;
 
-// ── CAMVIZ — see the cameras: frustum wedges, dolly path, verify what each sees
-// Every shot in the reel drawn as its actual view cone (fov-accurate) with a
-// camera body and a dashed dolly path connecting them. "Show what the camera
-// sees, where it points, its path" — and click a SHOT/JUMP to fly there.
+// ── CAMVIZ · THE SHOT RIVER — the film's time as a place you stand inside ────
+// The reel is drawn IN the world: a glowing spline through every camera, a
+// floating CARD per shot (live thumbnail of what that camera sees + duration),
+// fov-accurate frustum wedges, and yellow sight lines to each shot's ledger
+// subject. During playback the live card burns bright — the movie is a road
+// and you can drive beside it. "follow the reel" rides it.
 const CAMVIZ = (() => {
-    let group = null, on = false;
+    let group = null, on = false, cards = [], activeIdx = -1;
     function wedge(pos, tgt, fov, d, color){
         const f = tgt.clone().sub(pos); if (f.lengthSq() < 1e-6) f.set(0,0,-1); f.normalize();
         let up = new THREE.Vector3(0,1,0); if (Math.abs(f.dot(up)) > 0.98) up = new THREE.Vector3(0,0,1);
@@ -8898,10 +9227,39 @@ const CAMVIZ = (() => {
         const geo = new THREE.BufferGeometry().setFromPoints(P);
         return new THREE.LineSegments(geo, new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.85 }));
     }
-    let focused = -1;   // -1 = show all as thin ghosts; else one bright frustum
-    // Legible reel: small camera bodies + dashed dolly path always; frustum
-    // WEDGES only for the focused shot (bright) — or thin ghosts for all when
-    // nothing is focused. No more 21 overlapping cones.
+    // a shot card: canvas = thumbnail area + "S3 · 4.1s" strip, as a sprite that
+    // always faces you. The thumbnail is what THAT camera actually sees, snapped
+    // from the live scene a beat after the river rises (staggered, no hitch).
+    function makeCard(i, s){
+        const c = document.createElement('canvas'); c.width = 256; c.height = 224;
+        const x = c.getContext('2d');
+        x.fillStyle = '#0a1214'; x.fillRect(0, 0, 256, 224);
+        x.fillStyle = '#0f2a26'; x.fillRect(4, 4, 248, 186);
+        x.fillStyle = '#19e6c8'; x.globalAlpha = 0.25; x.font = '700 60px ui-monospace, monospace';
+        x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillText('◉', 128, 96); x.globalAlpha = 1;
+        x.strokeStyle = '#19e6c8'; x.lineWidth = 4; x.strokeRect(2, 2, 252, 220);
+        const dur = ((+s.travel || 0) + (+s.hold || 0)).toFixed(1);
+        x.font = '700 28px ui-monospace, monospace'; x.textAlign = 'left';
+        x.fillStyle = '#19e6c8'; x.fillText('S' + (i + 1), 12, 207);
+        x.textAlign = 'right'; x.fillStyle = '#ffd23f'; x.fillText(dur + 's', 244, 207);
+        const tex = new THREE.CanvasTexture(c);
+        const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, opacity: 0.92, depthTest: true }));
+        sp.scale.set(3.4, 2.98, 1);
+        sp.userData.__card = { canvas: c, ctx: x, tex, i };
+        return sp;
+    }
+    function snapCard(sp, s){
+        try {
+            const url = window.LEDGER && LEDGER.snapFrom && LEDGER.snapFrom(s.p, s.t);
+            if (!url) return;
+            const img = new Image();
+            img.onload = () => { try { const cd = sp.userData.__card; cd.ctx.drawImage(img, 4, 4, 248, 186);
+                cd.ctx.strokeStyle = '#19e6c8'; cd.ctx.lineWidth = 4; cd.ctx.strokeRect(2, 2, 252, 220);
+                cd.tex.needsUpdate = true; } catch(_){} };
+            img.src = url;
+        } catch(_){}
+    }
+    let focused = -1;   // -1 = the whole river; else one bright frustum
     function build(){
         clear();
         const shots = (window.CINE && CINE.shots) || [];
@@ -8919,12 +9277,14 @@ const CAMVIZ = (() => {
             const showWedge = (focused < 0) || isFocus;
             if (showWedge){ const w = wedge(pos, tgt, fov, isFocus ? 11 : 7, isFocus ? 0x19e6c8 : col);
                 w.material.opacity = isFocus ? 0.95 : 0.28; group.add(w); }
-            const sz = isFocus ? 1.8 : 1.0;
-            const body = new THREE.Mesh(new THREE.BoxGeometry(sz, sz * 0.75, sz * 1.4), new THREE.MeshBasicMaterial({ color: isFocus ? 0x19e6c8 : col }));
+            const body = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.68, 1.26), new THREE.MeshBasicMaterial({ color: isFocus ? 0x19e6c8 : col }));
             body.position.copy(pos); try { body.lookAt(tgt); } catch(_){} group.add(body);
-            // THE LEDGER LINK (inv. 3): shots and subjects are two-way — draw the
-            // sight line from this camera to its subject's LIVE body, so you can
-            // verify each shot frames something real.
+            // the card floats above its camera; thumbnails land staggered
+            const card = makeCard(i, s);
+            card.position.copy(pos).add(new THREE.Vector3(0, 2.6, 0));
+            group.add(card); cards.push(card);
+            setTimeout(() => { if (on) snapCard(card, s); }, 120 + i * 70);
+            // THE LEDGER LINK (inv. 3): sight line to the shot's LIVE subject
             try {
                 const beat = bp && bp.beats && bp.beats[i];
                 const subj = beat && (beat.subject || (bp.cast && bp.cast[0] && bp.cast[0].name));
@@ -8937,17 +9297,39 @@ const CAMVIZ = (() => {
                 }
             } catch(_){}
         });
-        if (pts.length > 1){ const path = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineDashedMaterial({ color: 0xffd23f, dashSize: 1.3, gapSize: 0.7, transparent: true, opacity: 0.7 })); path.computeLineDistances(); group.add(path); }
+        // THE TIME SPLINE: one continuous glowing river through every camera —
+        // the edit as a road. (Falls back to a dashed line for 2-point reels.)
+        if (pts.length > 2){
+            try {
+                const curve = new THREE.CatmullRomCurve3(pts, false, 'catmullrom', 0.35);
+                const tube = new THREE.Mesh(new THREE.TubeGeometry(curve, Math.min(400, pts.length * 12), 0.14, 6, false),
+                    new THREE.MeshBasicMaterial({ color: 0x19e6c8, transparent: true, opacity: 0.6, blending: THREE.AdditiveBlending, depthWrite: false }));
+                group.add(tube);
+            } catch(_){}
+        } else if (pts.length > 1){
+            const path = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineDashedMaterial({ color: 0xffd23f, dashSize: 1.3, gapSize: 0.7, transparent: true, opacity: 0.7 }));
+            path.computeLineDistances(); group.add(path);
+        }
         scene.add(group); on = true;
+        if (activeIdx >= 0) setActive(activeIdx);
         return shots.length;
     }
-    function clear(){ if (group){ try { scene.remove(group); group.traverse(o => { try { o.geometry && o.geometry.dispose(); o.material && o.material.dispose && o.material.dispose(); } catch(_){} }); } catch(_){} group = null; } on = false; }
-    function toggle(){ if (on){ clear(); return 'cameras hidden'; } focused = -1; const n = build(); return n ? ('showing ' + n + ' cameras — tap a shot to isolate its frustum') : 'no shots — "mark all shots" first'; }
+    function clear(){ if (group){ try { scene.remove(group); group.traverse(o => { try { o.geometry && o.geometry.dispose(); o.material && o.material.dispose && o.material.dispose(); } catch(_){} }); } catch(_){} group = null; } cards = []; on = false; }
+    function toggle(){ if (on){ clear(); return 'the river sleeps'; } focused = -1; const n = build(); return n ? ('THE SHOT RIVER — ' + n + ' shots standing in the world; "follow the reel" to ride it') : 'no shots — "mark all shots" first'; }
     function refresh(){ if (on) build(); }
+    // the live card burns during playback — time made visible
+    function setActive(i){
+        activeIdx = i;
+        cards.forEach(sp => {
+            const isIt = sp.userData.__card.i === i;
+            sp.scale.set(isIt ? 5.4 : 3.4, isIt ? 4.73 : 2.98, 1);
+            sp.material.opacity = (i < 0) ? 0.92 : (isIt ? 1 : 0.55);
+        });
+    }
     function focus(i){ focused = (focused === i) ? -1 : i; if (!on) build(); else build();   // rebuild with the isolation
         try { const s = CINE.shots[i]; if (s){ camMode = 'FREE'; camera.position.fromArray(s.p); orbit.target.fromArray(s.t); } } catch(_){}
         return focused; }
-    return { build, clear, toggle, refresh, focus, get on(){ return on; }, get focused(){ return focused; } };
+    return { build, clear, toggle, refresh, focus, setActive, get on(){ return on; }, get focused(){ return focused; } };
 })();
 window.__camviz = CAMVIZ;
 // edit an asset's ready-made prompt in place (mutates the blueprint)
@@ -9000,9 +9382,14 @@ function __filmSections(list){
         list.appendChild(r); return r;
     };
     const rowState = (id, fallbackBuilt) => { const r = window.LEDGER && LEDGER.get(id); return r ? r.state : (fallbackBuilt ? 'placed' : 'planned'); };
-    // CAST — native rig actors (no bots)
-    if (bp.cast && bp.cast.length && !head('CAST', 'edit in HELLO', 'cast', 'cast').collapsed){
-        bp.cast.forEach((c, i) => frow(c.name.toUpperCase(), c.desc, rowState('cast-' + i, __filmBuilt.has('cast:' + c.name) || !!__castActors['cast-' + i]),
+    // CAST — native rig actors; ⚔ VS turns them into playable bot opponents
+    if (bp.cast && bp.cast.length){
+        const hd = head('CAST', 'edit in HELLO', 'cast', 'cast');
+        const vs = document.createElement('button'); vs.className = 'sg-fbtn'; vs.textContent = '⚔ VS';
+        vs.title = 'cast as BOTS — then open GAMES and play striker/flag against your characters';
+        vs.addEventListener('click', e => { e.stopPropagation(); __castToBots(); });
+        hd.el.appendChild(vs);
+        if (!hd.collapsed) bp.cast.forEach((c, i) => frow(c.name.toUpperCase(), c.desc, rowState('cast-' + i, __filmBuilt.has('cast:' + c.name) || !!__castActors['cast-' + i]),
             () => __genCast(i),
             () => __editCastInHello(i),
             () => __editPrompt(v => { if (v != null) c.desc = v; return c.desc; }))); }
@@ -9058,6 +9445,7 @@ function updateSceneGraph() {
     try { __filmSections(list); } catch(e){ console.warn('[film sections]', e); }
     const groups = new Map(), solo = [];
     selectableObjects.forEach(obj => {
+        if (obj.userData && obj.userData.__ghost) return;   // marks live in the FILM sections, not the object list
         const g = obj.userData && obj.userData.group;
         if (g){ if (!groups.has(g)) groups.set(g, { label: (obj.userData.label || g), items: [] }); groups.get(g).items.push(obj); }
         else solo.push(obj);
@@ -9071,12 +9459,14 @@ function updateSceneGraph() {
         const ct = document.createElement('span'); ct.className = 'sg-gcount'; ct.textContent = grp.items.length;
         const del = document.createElement('button'); del.className = 'sg-gdel'; del.textContent = '\u2715'; del.title = 'delete this whole group';
         del.addEventListener('click', e => { e.stopPropagation(); deleteGroup(gid); });
+        const mv = document.createElement('button'); mv.className = 'sg-grep'; mv.textContent = '\u2725'; mv.title = 'MOVE the whole group as one (gizmo on the group center)';
+        mv.addEventListener('click', e => { e.stopPropagation(); __groupMove(gid); });
         const rep = document.createElement('button'); rep.className = 'sg-grep'; rep.textContent = '\u21BB'; rep.title = 're-prompt this group with the AI';
         rep.addEventListener('click', e => { e.stopPropagation(); repromptGroup(gid); });
         const allOn = !!window.EXPORTER && grp.items.every(o => window.EXPORTER.has(o));
         const gex = document.createElement('button'); gex.className = 'sg-gexp' + (allOn ? ' on' : ''); gex.textContent = 'EXP'; gex.title = 'mark/unmark the whole group for export';
         gex.addEventListener('click', e => { e.stopPropagation(); if (window.EXPORTER) window.EXPORTER.markMany(grp.items, !allOn); updateSceneGraph(); });
-        header.append(tw, nm, ct, gex, rep, del);
+        header.append(tw, nm, ct, gex, mv, rep, del);
         header.addEventListener('click', () => { if (__sgCollapsed.has(gid)) __sgCollapsed.delete(gid); else __sgCollapsed.add(gid); updateSceneGraph(); });
         list.appendChild(header);
         if (!collapsed) grp.items.forEach((o,i) => list.appendChild(__sgItemRow(o, true, i+1)));
@@ -10088,6 +10478,8 @@ function rebuildPlayerCar(spec, keepPos, keepQuat) {
     if (keepPos) playerCar.position.copy(keepPos);
     if (keepQuat) playerCar.quaternion.copy(keepQuat);
     setCarDamageVisual(playerCar, localCarIntegrity, localCarDestroyed);
+    // the ledger's 'you' row always points at the LIVE driven rig
+    try { if (window.LEDGER && LEDGER.get('you')) LEDGER.get('you').object = playerCar; } catch(_){}
 }
 
 function setCarLoadingProgress(car, value = 0, active = false) {
@@ -10310,13 +10702,15 @@ function deployBot(config = {}) {
     if (localBots.length >= BOT_MAX) { notify(`BOT LIMIT ${BOT_MAX}`); return null; }
     const index = localBots.length;
     const team = config.team === 'ally' ? 'ally' : 'hostile';
-    const spec = randomBotSpec(team);
+    // CAST AS BOTS (film/LEDGER.md inv. 5): a cast row's forged vcode becomes a
+    // PLAYABLE opponent — its exact body, driving. Films are played, not watched.
+    const spec = config.vcode ? Object.assign(randomBotSpec(team), { vcode: config.vcode }) : randomBotSpec(team);
     const car = buildCar(spec);
-    const pos = botSpawnPoint(index);
+    const pos = (config.pos && Number.isFinite(config.pos.x)) ? new THREE.Vector3(config.pos.x, REST_Y, config.pos.z) : botSpawnPoint(index);
     const phys = { pos: pos.clone(), vel: new THREE.Vector3(), yaw: Math.atan2(-pos.x, -pos.z), grounded: true, touch: false, cr: CAR_R, upDir: new THREE.Vector3(0,1,0), surfaceNormal: new THREE.Vector3(0,1,0) };
     car.position.set(pos.x, pos.y - REST_Y, pos.z);
     const bot = {
-        id: crypto.randomUUID(), name: `${team === 'ally' ? 'WARDEN' : 'MARAUDER'}-${String(index + 1).padStart(2,'0')}`,
+        id: crypto.randomUUID(), name: config.name ? String(config.name).toUpperCase().slice(0, 14) : `${team === 'ally' ? 'WARDEN' : 'MARAUDER'}-${String(index + 1).padStart(2,'0')}`,
         role: ['raider','builder','hybrid'].includes(config.role) ? config.role : 'hybrid', team,
         style: ['adaptive','bunker','tower','perimeter','bridgehead'].includes(config.style) ? config.style : 'adaptive',
         useAI: !!config.useAI, autoBuild: config.autoBuild !== false, spec, car, phys,
@@ -12173,9 +12567,29 @@ transform.addEventListener('dragging-changed', (e) => {
     // PLACEMENT IS SOVEREIGN (film/LEDGER.md inv. 2): dragging a film entity
     // (placeholder or built body) writes its row — regeneration rebuilds THERE.
     if (!e.value){ try { if (window.LEDGER && transform.object) LEDGER.syncFromObject(transform.object); } catch(_){} }
+    // GROUP MOVE release: the accumulated drag writes every member row's anchor
+    if (!e.value){ try {
+        const gm = transform.object && transform.object.userData && transform.object.userData.__groupMove;
+        if (gm && window.LEDGER && gm.total.lengthSq()){
+            const ids = new Set();
+            gm.members.forEach(m => { const lid = (m.userData && (m.userData.__ledgerId || m.userData.__fortId)); if (lid) ids.add(lid); });
+            ids.forEach(lid => { const r = LEDGER.get(lid); if (r){ r.placement.x = +(r.placement.x + gm.total.x).toFixed(2); r.placement.z = +(r.placement.z + gm.total.z).toFixed(2); } });
+            gm.total.set(0, 0, 0);
+        }
+    } catch(_){} }
     if (window.__ritualCam) return;   // the HELLO rig builder persists its own edits — skip arena snapshot/codeview
     if (e.value) saveState();
     else { refreshCodeView(); sceneDirty = true; } // PATCH 4: drag moved geometry, update code view + flag snapshot
+});
+// GROUP MOVE drive: each gizmo change carries every member by the same delta
+transform.addEventListener('objectChange', () => {
+    const o = transform.object, gm = o && o.userData && o.userData.__groupMove;
+    if (!gm) return;
+    const delta = o.position.clone().sub(gm.prev);
+    if (!delta.lengthSq()) return;
+    gm.members.forEach(m => { try { m.position.add(delta); } catch(_){} });
+    gm.prev.copy(o.position);
+    gm.total.add(delta);
 });
 transform.addEventListener('change', () => {
     if (sceneState.selectedId && document.getElementById('inspector').classList.contains('show')) {
@@ -16122,6 +16536,7 @@ const CINE = (function(){
         S.playing = false;
         document.body.classList.remove('cine-rolling');
         if (S.savedCam){ orbit.enabled = S.savedCam.enabled; S.savedCam = null; }
+        try { if (window.__camviz) __camviz.setActive(-1); } catch(_){}   // the river cools
         hud(); if (!silent) notify('CUT');
         if (S.autocut && S.rec){ S.autocut = false; setTimeout(()=>stopRec(), 350); }   // let the last frame land
     }
@@ -16151,7 +16566,8 @@ const CINE = (function(){
         else orbit.target.lerpVectors(prevT, new THREE.Vector3().fromArray(cur.t), k);
         camera.lookAt(orbit.target);
         const pl = $('cine-playhead'); if (pl) pl.textContent = (i+1) + '/' + shots.length;
-        if (S.ph >= travel + hold){ S.ph = 0; S.seg++; }
+        if (S.ph >= travel + hold){ S.ph = 0; S.seg++;
+            try { if (window.__camviz && __camviz.on) __camviz.setActive(S.seg); } catch(_){} }   // the shot river lights the live card
     }
     // ── recorder ──
     function pickMime(){
@@ -16216,7 +16632,8 @@ const CINE = (function(){
         hud();
     })();
     return { mark, clearReel, play, stopPlay, tick, startRec, stopRec, film, cut, serialize, restore,
-             get playing(){ return S.playing; }, get recording(){ return !!S.rec; }, get shots(){ return S.shots; } };
+             get playing(){ return S.playing; }, get recording(){ return !!S.rec; }, get shots(){ return S.shots; },
+             get seg(){ return S.seg; } };
 })();
 window.CINE = CINE;
 
@@ -16317,8 +16734,16 @@ function runCommand(text){
         };
         const camWords = t.match(/\b(wide|close|low|aerial|behind|front)\b/);
         // CAMVIZ — see every camera's frustum, direction and dolly path
-        if(/\b(show|hide|toggle|see)\b.*\b(camera|cameras|frustum|shots?)\b|\bcamera path\b/.test(t) && !/\bmark\b/.test(t)){
+        if(/\b(show|hide|toggle|see)\b.*\b(camera|cameras|frustum|shots?)\b|\bcamera path\b|\bshot river\b/.test(t) && !/\bmark\b/.test(t)){
             if (window.__camviz) return __camviz.toggle();
+        }
+        // FOLLOW THE REEL — the river stands, the eye rides it, you keep driving
+        if(/\bfollow\b.*\b(reel|river|spline|cameras|shots|film)\b|\bride the (reel|river)\b/.test(t)){
+            if (!window.CINE || !CINE.shots.length) return 'no shots — "mark all shots" first';
+            try { if (window.__camviz && !__camviz.on) __camviz.build(); } catch(_){}
+            try { if (window.__camviz) __camviz.setActive(0); } catch(_){}
+            if (!CINE.playing) CINE.play(false);
+            return 'riding the reel — the river is lit, the live card burns, you can keep driving';
         }
         // MARK ALL SHOTS — populate the reel from the film plan, then you can visualize/verify
         if(/\bmark all\b|\bmark (the |every )?shots?\b|\blay (out|down) (the )?shots?\b/.test(t)){
@@ -16872,7 +17297,8 @@ const TWIN = (() => {
                 if (r && r.ok) {
                     // nothing in the film exists outside the ledger (inv. 1)
                     try { if (window.LEDGER){ LEDGER.upsert(id, { kind: 'set', name: (LEDGER.get(id) && LEDGER.get(id).name) || String(b.prompt || id).slice(0, 24), prompt: b.prompt || '', code: (b.code || b.fallbackCode), provenance: b.baked === 'model' ? 'model' : 'golden', placement: { x: anchor.x, z: anchor.z, ry: 0 } });
-                        LEDGER.setMeshes(id, (r.wg && r.wg.pending || []).map(s2 => s2.mesh), r.cert); } } catch(_){}
+                        LEDGER.setMeshes(id, (r.wg && r.wg.pending || []).map(s2 => s2.mesh), r.cert);
+                        LEDGER.pictureAndKeep(id); } } catch(_){}
                     try { window.__broadcastFort(id, (b.code || b.fallbackCode), anchor); } catch(_){}
                 }
                 return r;
