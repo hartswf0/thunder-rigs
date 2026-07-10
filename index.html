@@ -105,6 +105,10 @@ body.menu-open #toolbars { top:max(72px,calc(env(safe-area-inset-top) + 56px)); 
 #scene-graph .sg-list{ padding: 8px; flex:1 1 auto; }
 /* the composer — the obvious way to START a film */
 #film-composer{ flex:0 0 auto; padding:11px 12px 12px; border-bottom:1px solid rgba(168,85,247,.28); background:rgba(168,85,247,.07); }
+#film-ai-status{ display:block; width:100%; box-sizing:border-box; text-align:left; border-radius:7px; font:800 9px/1.2 inherit; letter-spacing:.03em; padding:7px 9px; margin-bottom:9px; cursor:pointer; -webkit-tap-highlight-color:transparent; }
+#film-ai-status.ai-off{ background:rgba(255,210,63,.14); border:1px solid rgba(255,210,63,.5); color:#ffd23f; }
+#film-ai-status.ai-off:active{ background:rgba(255,210,63,.28); }
+#film-ai-status.ai-on{ background:rgba(0,255,136,.12); border:1px solid rgba(0,255,136,.45); color:#6ef7b3; cursor:default; }
 #film-composer .fc-cue{ font-size:9.5px; color:#b6a9d0; letter-spacing:.02em; margin-bottom:7px; line-height:1.3; }
 #film-seed-input{ width:100%; box-sizing:border-box; background:#0a0d11; border:1px solid rgba(168,85,247,.5); border-radius:8px; color:#f0ecff; font:inherit; font-size:12px; padding:9px 10px; outline:none; }
 #film-seed-input:focus{ border-color:#a855f7; box-shadow:0 0 0 2px rgba(168,85,247,.2); }
@@ -494,6 +498,7 @@ body.world-light #toast{background:#101820;color:#fff}
 <div id="scene-graph">
     <div class="sg-header"><span>FILM STUDIO</span><button id="sg-close" type="button" aria-label="close">✕</button></div>
     <div id="film-composer">
+        <button id="film-ai-status" type="button"></button>
         <div class="fc-cue">Describe a film — a place, a memory, a character:</div>
         <input id="film-seed-input" type="text" autocomplete="off" spellcheck="false" placeholder="a keeper of the storm gate">
         <button id="film-compose-btn" type="button">COMPOSE FILM ▸</button>
@@ -516,6 +521,19 @@ body.world-light #toast{background:#101820;color:#fff}
     btn.addEventListener('click', go);
     inp.addEventListener('keydown', e => { if (e.key === 'Enter') go(); });
     document.querySelectorAll('#film-examples button').forEach(b => b.addEventListener('click', () => { inp.value = b.dataset.seed; go(); }));
+    // AI status — the honest reason worlds/prompts look generic, with a 1-tap fix
+    const aiEl = document.getElementById('film-ai-status');
+    function refreshAI(){
+        if (!aiEl) return;
+        let on = false, model = '';
+        try { const cfg = window.getAIConfig && getAIConfig(); on = !!(cfg && cfg.provider !== 'thunder' && cfg.apiKey); model = (cfg && cfg.model) || 'openai'; } catch(_){}
+        aiEl.className = on ? 'ai-on' : 'ai-off';
+        aiEl.innerHTML = on ? ('● AI ON · ' + model + ' — generation is real') : '○ AI OFF · using stand-ins — TAP TO CONNECT A KEY';
+    }
+    if (aiEl) aiEl.addEventListener('click', () => {
+        const m = document.getElementById('api-modal'); if (m){ m.classList.add('show'); const k = document.getElementById('api-key'); setTimeout(() => { try { k && k.focus(); } catch(_){} }, 80); }
+    });
+    refreshAI(); setInterval(refreshAI, 2000);
     const cl = document.getElementById('sg-close'); if (cl) cl.addEventListener('click', () => { const p = document.getElementById('scene-graph'); if (p) p.classList.remove('show'); });
     // menu → STUDIO opens the film studio and focuses the composer.
     // Delegated on document: the #btn-cine-studio button is parsed AFTER this
@@ -8437,11 +8455,22 @@ async function __genCast(i){
     const bp = TWIN.lastBlueprint; if (!bp || !bp.cast[i]) return; const c = bp.cast[i];
     notify('⚒ CASTING ' + c.name.toUpperCase() + '…');
     try { window.BUS && BUS.say('cast a ' + (c.desc || 'keeper') + ' named ' + c.name, 'film'); } catch(_){}
+    const bot = (typeof localBots !== 'undefined') && localBots.find(x => x && x.name && x.name.toLowerCase().includes(c.name.toLowerCase()));
+    // model-forge the rig from the prompt (if a key is set); else the golden cast stands
     const forged = await __forgeAssetCode('cast', c.desc || '');
-    if (forged && forged.real){ try { const g = window.__buildVehicleFromCode(forged.src);
-        if (g){ const b = (localBots || []).find(x => x && x.name.toLowerCase().includes(c.name.toLowerCase()));
-            if (b){ const keep = b.car.position.clone(); scene.remove(b.car); b.spec = Object.assign({}, b.spec, { vcode: forged.src }); b.car = buildCar(b.spec); b.car.position.copy(keep); scene.add(b.car); } } } catch(e){ console.warn('[gencast]', e); } }
-    __filmBuilt.add('cast:' + c.name); notify('✓ ' + c.name.toUpperCase() + (forged && forged.real ? ' — MODEL-FORGED' : ' — stand-in'));
+    if (forged && forged.real && bot){ try { const g = window.__buildVehicleFromCode(forged.src);
+        if (g){ const keep = bot.car.position.clone(); scene.remove(bot.car); bot.spec = Object.assign({}, bot.spec, { vcode: forged.src }); bot.car = buildCar(bot.spec); bot.car.position.copy(keep); scene.add(bot.car); } } catch(e){ console.warn('[gencast]', e); } }
+    // SPAWN IN FRONT + FRAME — so casting visibly puts a character before you,
+    // not off in a corner of the arena
+    if (bot && bot.car){ try {
+        const fwd = new THREE.Vector3(Math.sin(P.yaw), 0, Math.cos(P.yaw));
+        const spot = P.pos.clone().addScaledVector(fwd, 11);
+        bot.car.position.set(spot.x, 0, spot.z); if (bot.phys && bot.phys.pos) bot.phys.pos.set(spot.x, 1, spot.z);
+        camMode = 'FREE'; camera.position.copy(spot).add(new THREE.Vector3(5, 4, 9)); orbit.target.copy(spot.clone().setY(1.2));
+        try { if (typeof spark === 'function') spark(spot.clone().setY(1), 0x19e6c8, 14, 30, 12, 0.8); } catch(_){}
+    } catch(e){ console.warn('[cast place]', e); } }
+    __filmBuilt.add('cast:' + c.name);
+    notify(bot ? ('✓ ' + c.name.toUpperCase() + ' ON SET' + (forged && forged.real ? ' · model' : ' · stand-in')) : ('CAST FAILED — ' + c.name.toUpperCase()));
     try { updateSceneGraph(); } catch(_){}
 }
 async function __genSet(mi, form){
