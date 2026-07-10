@@ -8677,8 +8677,29 @@ window.LEDGER = (() => {
         try { if (typeof updateSceneGraph === 'function') updateSceneGraph(); } catch(_){}
         return all().length;
     }
+    // DIRECTABILITY + FRAMING resolve THROUGH the ledger (inv. 3 + 5):
+    // name → row → live body → center + radius. The camera always looks at
+    // something real, at its real size.
+    function findByName(name){
+        const n = String(name || '').toLowerCase().trim(); if (!n) return null;
+        const live = all().filter(r => (r.object && r.object.parent) || (r.meshes && r.meshes.some(m => m.parent)));
+        return live.find(r => r.name && n === r.name.toLowerCase())
+            || live.find(r => r.name && (n.includes(r.name.toLowerCase()) || r.name.toLowerCase().includes(n)))
+            || live.find(r => r.prompt && n.split(/\s+/).some(w => w.length > 2 && r.prompt.toLowerCase().includes(w)))
+            || null;
+    }
+    function frame(idOrRow){
+        const r = typeof idOrRow === 'string' ? rows[idOrRow] : idOrRow; if (!r) return null;
+        const b = bounds(r.id); if (!b) return null;
+        const c = b.getCenter(new THREE.Vector3()), sz = b.getSize(new THREE.Vector3());
+        return { row: r, center: c, radius: Math.max(1.2, Math.max(sz.x, sz.y, sz.z) / 2) };
+    }
+    function isLive(id){
+        const r = rows[id]; if (!r) return false;
+        return !!((r.object && r.object.parent) || (r.meshes && r.meshes.some(m => m.parent)));
+    }
     return { rows, upsert, get, all, ghost, clearGhostsFor, clearAllGhosts, setObject, setMeshes,
-        removeBuiltFort, syncFromObject, spent, precheck, bounds, compose, BUDGET };
+        removeBuiltFort, syncFromObject, spent, precheck, bounds, compose, findByName, frame, isLive, BUDGET };
 })();
 window.__ledgerCompose = bp => { try { return LEDGER.compose(bp); } catch(e){ console.warn('[ledger compose]', e); return 0; } };
 const FNCAM = { perception:'wide', action:'behind', affection:'close', opsign:'aerial', sonsign:'low', crystal:'front', recollection:'close' };
@@ -8888,6 +8909,7 @@ const CAMVIZ = (() => {
         group = new THREE.Group(); group.userData.__camviz = true;
         const fov = (typeof camera !== 'undefined' && camera.fov) ? camera.fov : 55;
         const pts = [];
+        const bp = window.TWIN && TWIN.lastBlueprint;
         shots.forEach((s, i) => {
             const pos = new THREE.Vector3().fromArray(s.p || [0,10,20]);
             const tgt = new THREE.Vector3().fromArray(s.t || [0,0,0]);
@@ -8900,6 +8922,20 @@ const CAMVIZ = (() => {
             const sz = isFocus ? 1.8 : 1.0;
             const body = new THREE.Mesh(new THREE.BoxGeometry(sz, sz * 0.75, sz * 1.4), new THREE.MeshBasicMaterial({ color: isFocus ? 0x19e6c8 : col }));
             body.position.copy(pos); try { body.lookAt(tgt); } catch(_){} group.add(body);
+            // THE LEDGER LINK (inv. 3): shots and subjects are two-way — draw the
+            // sight line from this camera to its subject's LIVE body, so you can
+            // verify each shot frames something real.
+            try {
+                const beat = bp && bp.beats && bp.beats[i];
+                const subj = beat && (beat.subject || (bp.cast && bp.cast[0] && bp.cast[0].name));
+                const row = subj && window.LEDGER && LEDGER.findByName(subj);
+                const f = row && LEDGER.frame(row);
+                if (f){
+                    const ln = new THREE.Line(new THREE.BufferGeometry().setFromPoints([pos, f.center]),
+                        new THREE.LineBasicMaterial({ color: 0xffd23f, transparent: true, opacity: isFocus ? 0.85 : 0.22 }));
+                    group.add(ln);
+                }
+            } catch(_){}
         });
         if (pts.length > 1){ const path = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineDashedMaterial({ color: 0xffd23f, dashSize: 1.3, gapSize: 0.7, transparent: true, opacity: 0.7 })); path.computeLineDistances(); group.add(path); }
         scene.add(group); on = true;
@@ -8944,30 +8980,37 @@ function __filmSections(list){
             g.addEventListener('click', e => { e.stopPropagation(); __genSection(kind); }); h.appendChild(g); }
         list.appendChild(h); return { el: h, collapsed };
     };
-    // a rich film row: label + editable prompt sub + GEN + open-in-builder
-    const frow = (name, prompt, built, onGen, onOpen, onEdit, cls) => {
+    // a rich film row: state chip (from THE LEDGER row) + label + editable
+    // prompt sub + GEN + open-in-builder. The graph renders FROM the ledger
+    // (inv. 1): chips ARE row.state, never a parallel bookkeeping set.
+    const CHIP = { planned: ['◇', '#9aa0a6'], generating: ['⚒', '#ffd23f'], built: ['✓', '#19e6c8'], placed: ['✓', '#19e6c8'], performing: ['▶', '#a855f7'] };
+    const frow = (name, prompt, state, onGen, onOpen, onEdit, cls) => {
+        const built = state === 'placed' || state === 'built' || state === 'performing';
         const r = document.createElement('div'); r.className = 'sg-item sg-child sg-filmrow' + (built ? ' built' : '') + (cls ? ' ' + cls : '');
+        const chip = CHIP[state] || CHIP.planned;
         const lab = document.createElement('div'); lab.className = 'sg-fl';
-        lab.innerHTML = '<span class="sg-fnm">' + name + '</span><span class="sg-fpr">' + (prompt || '') + '</span>';
+        lab.innerHTML = '<span class="sg-fnm"><b style="color:' + chip[1] + ';margin-right:4px;">' + chip[0] + '</b>' + name + '</span><span class="sg-fpr">' + (prompt || '') + '</span>';
+        lab.title = 'ledger: ' + state;
         lab.addEventListener('click', onOpen); r.appendChild(lab);
         if (onEdit){ const ed = document.createElement('button'); ed.className = 'sg-fbtn ghost'; ed.textContent = '✎'; ed.title = 'edit prompt';
             ed.addEventListener('click', e => { e.stopPropagation(); onEdit(); }); r.appendChild(ed); }
         if (onGen){ const g = document.createElement('button'); g.className = 'sg-fbtn' + (built ? ' done' : '');
-            g.textContent = built ? '↻' : 'GEN'; g.title = built ? 'regenerate' : 'generate into the world';
+            g.textContent = state === 'generating' ? '…' : (built ? '↻' : 'GEN'); g.title = built ? 'regenerate (swaps in place)' : 'generate into the world';
             g.addEventListener('click', e => { e.stopPropagation(); onGen(); }); r.appendChild(g); }
         list.appendChild(r); return r;
     };
+    const rowState = (id, fallbackBuilt) => { const r = window.LEDGER && LEDGER.get(id); return r ? r.state : (fallbackBuilt ? 'placed' : 'planned'); };
     // CAST — native rig actors (no bots)
     if (bp.cast && bp.cast.length && !head('CAST', 'edit in HELLO', 'cast', 'cast').collapsed){
-        bp.cast.forEach((c, i) => frow(c.name.toUpperCase(), c.desc, __filmBuilt.has('cast:' + c.name) || !!__castActors['cast-' + i],
+        bp.cast.forEach((c, i) => frow(c.name.toUpperCase(), c.desc, rowState('cast-' + i, __filmBuilt.has('cast:' + c.name) || !!__castActors['cast-' + i]),
             () => __genCast(i),
             () => __editCastInHello(i),
             () => __editPrompt(v => { if (v != null) c.desc = v; return c.desc; }))); }
     // SET
     if (bp.motifs && bp.motifs.length && !head('THE SET', 'edit in WORLD', 'set', 'set').collapsed){
         bp.motifs.forEach((m, mi) => ['past','present','future'].forEach(form => {
-            const id = 'motif-' + mi + '-' + form, built = __filmBuilt.has('set:' + mi + ':' + form) || !!findFort(id);
-            frow((m.name + ' · ' + form).toUpperCase(), m[form] || m.name, built,
+            const id = 'motif-' + mi + '-' + form;
+            frow((m.name + ' · ' + form).toUpperCase(), m[form] || m.name, rowState(id, __filmBuilt.has('set:' + mi + ':' + form) || !!findFort(id)),
                 () => __genSet(mi, form),
                 () => { const o = findFort(id);
                     if (o){ try { selectObject(o); } catch(_){} try { camMode = 'FREE'; const c = new THREE.Box3().setFromObject(o).getCenter(new THREE.Vector3()); camera.position.copy(c).add(new THREE.Vector3(1,0.6,1).normalize().multiplyScalar(28)); orbit.target.copy(c); } catch(_){}
@@ -8981,7 +9024,7 @@ function __filmSections(list){
         ['past','present','future'].forEach(layer => {
             const rows = bp.beats.map((b, i) => ({ b, i })).filter(x => x.b.layer === layer);
             if (!rows.length) return;
-            const built = rows.filter(x => __filmBuilt.has('shot:' + x.i)).length;
+            const built = rows.filter(x => rowState('shot-' + x.i, __filmBuilt.has('shot:' + x.i)) !== 'planned').length;
             const hd = head(layer.toUpperCase() + ' IMAGES', built + '/' + rows.length, null, 'shots:' + layer);
             const gl = document.createElement('button'); gl.className = 'sg-fbtn ghost'; gl.textContent = 'PROMPTS';
             gl.title = 'regenerate all ' + layer + ' image prompts from the seed (cascade)';
@@ -8989,17 +9032,19 @@ function __filmSections(list){
             if (hd.collapsed) return;
             rows.forEach(({ b, i }) => {
                 const cam = FNCAM[b.fn] || 'wide', subj = (b.subject || (bp.cast && bp.cast[0] && bp.cast[0].name) || 'me');
-                const isStaged = __filmBuilt.has('shot:' + i);
+                const st = rowState('shot-' + i, __filmBuilt.has('shot:' + i));
+                const isStaged = st === 'placed' || st === 'built' || st === 'performing';
+                const chip = CHIP[st] || CHIP.planned;
                 const r = document.createElement('div'); r.className = 'sg-item sg-child sg-filmrow sg-shot' + (isStaged ? ' built' : '');
                 const lab = document.createElement('div'); lab.className = 'sg-fl sg-1l';
-                lab.innerHTML = '<b>' + (TYPE[b.fn] || b.fn.toUpperCase()) + '</b> <i>' + cam + '</i> <span>' + (b.image || '') + '</span>';
+                lab.innerHTML = '<b style="color:' + chip[1] + ';">' + chip[0] + '</b> <b>' + (TYPE[b.fn] || b.fn.toUpperCase()) + '</b> <i>' + cam + '</i> <span>' + (b.image || '') + '</span>';
                 lab.title = (b.image || '') + '  ·  camera ' + cam + ' on ' + subj;
                 lab.addEventListener('click', () => { try { window.BUS && BUS.say('camera ' + cam + ' on ' + subj, 'graph'); } catch(_){} try { if (window.__camviz && __camviz.on) __camviz.focus(i); } catch(_){} });
                 r.appendChild(lab);
                 const ed = document.createElement('button'); ed.className = 'sg-fbtn ghost'; ed.textContent = '✎'; ed.title = 'edit this image prompt';
                 ed.addEventListener('click', e => { e.stopPropagation(); __editPrompt(v => { if (v != null) b.image = v; return b.image; }); }); r.appendChild(ed);
                 // GEN now ACTIVATES: forge geometry from the prompt + frame it as this shot
-                const g = document.createElement('button'); g.className = 'sg-fbtn' + (isStaged ? ' done' : ''); g.textContent = isStaged ? '↻' : 'STAGE'; g.title = 'build this image into the world from its prompt';
+                const g = document.createElement('button'); g.className = 'sg-fbtn' + (isStaged ? ' done' : ''); g.textContent = st === 'generating' ? '…' : (isStaged ? '↻' : 'STAGE'); g.title = 'build this image into the world from its prompt';
                 g.addEventListener('click', e => { e.stopPropagation(); __stageShot(i); }); r.appendChild(g);
                 list.appendChild(r);
             });
@@ -16233,24 +16278,38 @@ function runCommand(text){
         // ── STUDIO — cast, cameras, shots, the film ──────────────────────────
         // HELLO to multiple characters; the world and forts are the set; you
         // hold either a character or the camera. All directed from here.
-        const __subjectPos = (st) => {
-            if (!st || /\b(me|player|my)\b/.test(st)) return P.pos.clone();
-            if (/\bball\b/.test(st)) return B.pos.clone();
+        // THE LEDGER RESOLVES THE SUBJECT (film/LEDGER.md inv. 3+5): name → row →
+        // live body → center AND radius, so every shot frustum-fits its subject —
+        // the camera always looks at something real, at its real size. Bots, the
+        // ball, the player, and loose scene objects remain the fallbacks.
+        const __subjectInfo = (st) => {
+            st = String(st || '').toLowerCase();
+            if (st && !/\b(me|player|my|ball)\b/.test(st) && window.LEDGER){
+                try { const row = LEDGER.findByName(st); const f = row && LEDGER.frame(row);
+                    if (f) return { pos: f.center, radius: f.radius }; } catch(_){}
+            }
+            if (!st || /\b(me|player|my)\b/.test(st)) return { pos: P.pos.clone(), radius: 2.2 };
+            if (/\bball\b/.test(st)) return { pos: B.pos.clone(), radius: 1.5 };
             const bot = (typeof localBots !== 'undefined') && localBots.find(b => b && !b.destroyed && st.includes(b.name.toLowerCase()));
-            if (bot) return (bot.phys && bot.phys.pos ? bot.phys.pos.clone() : bot.car.position.clone());
+            if (bot) return { pos: (bot.phys && bot.phys.pos ? bot.phys.pos.clone() : bot.car.position.clone()), radius: 2.2 };
             const obj = (typeof selectableObjects !== 'undefined') && selectableObjects.find(o => { const s = ((o.userData.name || '') + ' ' + (o.userData.label || '')).toLowerCase(); return s && st.split(/\s+/).some(w => w.length > 2 && s.includes(w)); });
-            return obj ? obj.position.clone() : P.pos.clone();
+            return { pos: obj ? obj.position.clone() : P.pos.clone(), radius: 2.2 };
         };
+        const __subjectPos = (st) => __subjectInfo(st).pos;
         const __placeCam = (type, st) => {
-            const s = __subjectPos(st);
+            const info = __subjectInfo(st), s = info.pos;
+            // frustum-fit: distance scales with the subject's real size
+            const fov = (typeof camera !== 'undefined' && camera.fov) ? camera.fov : 55;
+            const fit = info.radius / Math.tan((fov / 2) * Math.PI / 180);   // dist where the sphere fills the frame
+            const k = Math.max(1, fit / 8.5);                                // 1 for rig-scale, grows with forts
             const yaw = (typeof P !== 'undefined') ? P.yaw : 0;
             let p;
-            if (type === 'aerial') p = s.clone().add(new THREE.Vector3(0.5, 38, 0.5));
-            else if (type === 'close') p = s.clone().add(new THREE.Vector3(Math.sin(yaw + 2.6) * 5.5, 2.2, Math.cos(yaw + 2.6) * 5.5));
-            else if (type === 'low') p = s.clone().add(new THREE.Vector3(Math.sin(yaw + 2.2) * 9, 1.1, Math.cos(yaw + 2.2) * 9));
-            else if (type === 'behind') p = s.clone().add(new THREE.Vector3(-Math.sin(yaw) * 8.5, 3.2, -Math.cos(yaw) * 8.5));
-            else if (type === 'front') p = s.clone().add(new THREE.Vector3(Math.sin(yaw) * 8.5, 2.4, Math.cos(yaw) * 8.5));
-            else p = s.clone().add(new THREE.Vector3(14, 12, 20));   // wide
+            if (type === 'aerial') p = s.clone().add(new THREE.Vector3(0.5, Math.max(38, fit * 2.2), 0.5));
+            else if (type === 'close') p = s.clone().add(new THREE.Vector3(Math.sin(yaw + 2.6) * 5.5 * k, 2.2 * k, Math.cos(yaw + 2.6) * 5.5 * k));
+            else if (type === 'low') p = s.clone().add(new THREE.Vector3(Math.sin(yaw + 2.2) * 9 * k, 1.1, Math.cos(yaw + 2.2) * 9 * k));
+            else if (type === 'behind') p = s.clone().add(new THREE.Vector3(-Math.sin(yaw) * 8.5 * k, 3.2 * k, -Math.cos(yaw) * 8.5 * k));
+            else if (type === 'front') p = s.clone().add(new THREE.Vector3(Math.sin(yaw) * 8.5 * k, 2.4 * k, Math.cos(yaw) * 8.5 * k));
+            else { const d = Math.max(1, fit * 1.35 / 26.9); p = s.clone().add(new THREE.Vector3(14 * d, 12 * d, 20 * d)); }   // wide
             camMode = 'FREE';
             camera.position.copy(p);
             orbit.target.copy(s.clone().setY(Math.max(1.5, s.y + 1)));
@@ -16754,15 +16813,24 @@ const TWIN = (() => {
     }
     function fireBeat(b, i) {
         try {
-            // PERFORM REUSES WHAT YOU BUILT: a fort beat whose id already stands
-            // in the scene is kept, not rebuilt; a cast beat whose actor exists
-            // is kept. Your generated geometry IS the film.
+            // PERFORM = THE LEDGER PERFORMING (film/LEDGER.md inv. 6): beats
+            // resolve through rows. A beat whose entity is live is KEPT (never
+            // rebuilt over); a missing buildable builds and REGISTERS a row;
+            // a beat with nothing to build is skipped LOUDLY.
             if (b.kind === 'fort' && b.id) {
+                if (window.LEDGER && LEDGER.isLive(b.id)) { const r0 = LEDGER.get(b.id); if (r0){ r0.state = 'performing'; r0.usedAt = Date.now(); } return 'kept built: ' + b.id + ' (ledger)'; }
                 let exists = false; try { scene.traverse(o => { if (!exists && o.userData && o.userData.__fortId === b.id) exists = true; }); } catch(_){}
                 if (exists) return 'kept built: ' + b.id;
+                if (!b.code && !b.fallbackCode) {
+                    notify('⚠ SKIPPED ' + b.id + ' — never generated (GEN it in the studio)');
+                    if (window.AICON) AICON.log('LEDGER skip · ' + b.id + ' has no code and never built', 'wrn');
+                    return 'skipped: ' + b.id;
+                }
             }
             if (b.kind === 'say' && /^cast /.test(b.prompt || '')) {
                 try { const nm = (b.prompt.match(/named ([a-z0-9-]+)/) || [])[1];
+                    if (nm && window.LEDGER){ const row = LEDGER.all().find(r => r.kind === 'cast' && r.name && r.name.toLowerCase() === nm.toLowerCase() && LEDGER.isLive(r.id));
+                        if (row){ row.state = 'performing'; row.usedAt = Date.now(); return 'kept cast: ' + nm + ' (ledger)'; } }
                     if (nm && typeof __castActors !== 'undefined' && Object.values(__castActors).some(a => a && a.name && a.name.toLowerCase() === nm.toLowerCase())) return 'kept cast: ' + nm; } catch(_){}
             }
             if ((b.kind === 'say' || b.kind === 'motion') && b.prompt) return BUS.say(b.prompt, 'twin');
@@ -16796,9 +16864,17 @@ const TWIN = (() => {
             }
             if (b.kind === 'fort' && b.code) {
                 const id = b.id || ('twin-fort-' + i);
-                let r = window.__applyForgeFort(b.code, b.anchor || { x: 0, z: -20 }, id);
-                if ((!r || !r.ok) && b.fallbackCode && b.code !== b.fallbackCode) r = window.__applyForgeFort(b.fallbackCode, b.anchor || { x: 0, z: -20 }, id);
-                if (r && r.ok) { try { window.__broadcastFort(id, (b.code || b.fallbackCode), b.anchor || { x: 0, z: -20 }); } catch(_){} }
+                const anchor = (window.LEDGER && LEDGER.get(id) && (LEDGER.get(id).placement.x || LEDGER.get(id).placement.z))
+                    ? { x: LEDGER.get(id).placement.x, z: LEDGER.get(id).placement.z }   // the row's mark is sovereign
+                    : (b.anchor || { x: 0, z: -20 });
+                let r = window.__applyForgeFort(b.code, anchor, id);
+                if ((!r || !r.ok) && b.fallbackCode && b.code !== b.fallbackCode) r = window.__applyForgeFort(b.fallbackCode, anchor, id);
+                if (r && r.ok) {
+                    // nothing in the film exists outside the ledger (inv. 1)
+                    try { if (window.LEDGER){ LEDGER.upsert(id, { kind: 'set', name: (LEDGER.get(id) && LEDGER.get(id).name) || String(b.prompt || id).slice(0, 24), prompt: b.prompt || '', code: (b.code || b.fallbackCode), provenance: b.baked === 'model' ? 'model' : 'golden', placement: { x: anchor.x, z: anchor.z, ry: 0 } });
+                        LEDGER.setMeshes(id, (r.wg && r.wg.pending || []).map(s2 => s2.mesh), r.cert); } } catch(_){}
+                    try { window.__broadcastFort(id, (b.code || b.fallbackCode), anchor); } catch(_){}
+                }
                 return r;
             }
             if (b.kind === 'rig' && b.code) return applyLoadout(Object.assign({}, myLoadout, { vcode: b.code }));
@@ -17258,8 +17334,9 @@ const TWIN = (() => {
     }
     function performFilm(){
         if (!lastCompiled) return { ok: false };
-        // GATE: performing an empty set is a blank take — build something first
-        try { if (typeof __filmBuilt !== 'undefined' && __filmBuilt.size === 0){ notify('NOTHING BUILT YET — GEN cast/set (or BUILD ALL), then PERFORM'); return { ok: false, gated: true }; } } catch(_){}
+        // GATE (ledger-computed): performing an empty set is a blank take
+        try { const live = window.LEDGER ? LEDGER.all().filter(r => LEDGER.isLive(r.id)).length : 0;
+            if (!live && typeof __filmBuilt !== 'undefined' && __filmBuilt.size === 0){ notify('NOTHING BUILT YET — GEN cast/set (or BUILD ALL), then PERFORM'); return { ok: false, gated: true }; } } catch(_){}
         // YOUR STAGED REEL WINS: if you marked/staged shots, the take flies THOSE
         // cameras — the compiled beat clock still fires geometry/cues underneath.
         const staged = (window.CINE && CINE.shots && CINE.shots.length) ? CINE.shots.slice() : null;
