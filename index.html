@@ -109,6 +109,12 @@ body.menu-open #toolbars { top:max(72px,calc(env(safe-area-inset-top) + 56px)); 
 #film-ai-status.ai-off{ background:rgba(255,210,63,.14); border:1px solid rgba(255,210,63,.5); color:#ffd23f; }
 #film-ai-status.ai-off:active{ background:rgba(255,210,63,.28); }
 #film-ai-status.ai-on{ background:rgba(0,255,136,.12); border:1px solid rgba(0,255,136,.45); color:#6ef7b3; cursor:default; }
+#film-ai-setup{ margin-bottom:9px; }
+#film-ai-setup.hidden{ display:none; }
+#film-ai-key{ width:100%; box-sizing:border-box; background:#0a0d11; border:1px solid rgba(255,210,63,.5); border-radius:7px; color:#f0ecff; font:inherit; font-size:11px; padding:8px 9px; outline:none; }
+#film-ai-key:focus{ border-color:#ffd23f; }
+#film-ai-save{ width:100%; margin-top:6px; background:#ffd23f; border:none; border-radius:7px; color:#1a1400; font:800 10px/1 inherit; letter-spacing:.06em; padding:9px; cursor:pointer; }
+#film-ai-save:active{ transform:scale(.98); }
 #film-composer .fc-cue{ font-size:9.5px; color:#b6a9d0; letter-spacing:.02em; margin-bottom:7px; line-height:1.3; }
 #film-seed-input{ width:100%; box-sizing:border-box; background:#0a0d11; border:1px solid rgba(168,85,247,.5); border-radius:8px; color:#f0ecff; font:inherit; font-size:12px; padding:9px 10px; outline:none; }
 #film-seed-input:focus{ border-color:#a855f7; box-shadow:0 0 0 2px rgba(168,85,247,.2); }
@@ -499,6 +505,10 @@ body.world-light #toast{background:#101820;color:#fff}
     <div class="sg-header"><span>FILM STUDIO</span><button id="sg-close" type="button" aria-label="close">✕</button></div>
     <div id="film-composer">
         <button id="film-ai-status" type="button"></button>
+        <div id="film-ai-setup" class="hidden">
+            <input id="film-ai-key" type="password" autocomplete="off" spellcheck="false" placeholder="sk-… paste your OpenAI key">
+            <button id="film-ai-save" type="button">USE THIS KEY ▸</button>
+        </div>
         <div class="fc-cue">Describe a film — a place, a memory, a character:</div>
         <input id="film-seed-input" type="text" autocomplete="off" spellcheck="false" placeholder="a keeper of the storm gate">
         <button id="film-compose-btn" type="button">COMPOSE FILM ▸</button>
@@ -521,18 +531,34 @@ body.world-light #toast{background:#101820;color:#fff}
     btn.addEventListener('click', go);
     inp.addEventListener('keydown', e => { if (e.key === 'Enter') go(); });
     document.querySelectorAll('#film-examples button').forEach(b => b.addEventListener('click', () => { inp.value = b.dataset.seed; go(); }));
-    // AI status — the honest reason worlds/prompts look generic, with a 1-tap fix
+    // AI status + one-field key setup — the straightest way to make generation
+    // real: paste an OpenAI key here, it saves with provider=openai automatically.
     const aiEl = document.getElementById('film-ai-status');
+    const setup = document.getElementById('film-ai-setup');
+    const keyIn = document.getElementById('film-ai-key');
+    const saveBtn = document.getElementById('film-ai-save');
     function refreshAI(){
         if (!aiEl) return;
         let on = false, model = '';
-        try { const cfg = window.getAIConfig && getAIConfig(); on = !!(cfg && cfg.provider !== 'thunder' && cfg.apiKey); model = (cfg && cfg.model) || 'openai'; } catch(_){}
+        try { const cfg = window.getAIConfig && window.getAIConfig(); on = !!(cfg && cfg.provider !== 'thunder' && cfg.apiKey); model = (cfg && cfg.model) || 'openai'; } catch(_){}
         aiEl.className = on ? 'ai-on' : 'ai-off';
-        aiEl.innerHTML = on ? ('● AI ON · ' + model + ' — generation is real') : '○ AI OFF · using stand-ins — TAP TO CONNECT A KEY';
+        aiEl.innerHTML = on ? ('● AI ON · ' + model + ' — tap to change key') : '○ AI OFF · using stand-ins — TAP TO PASTE A KEY';
     }
     if (aiEl) aiEl.addEventListener('click', () => {
-        const m = document.getElementById('api-modal'); if (m){ m.classList.add('show'); const k = document.getElementById('api-key'); setTimeout(() => { try { k && k.focus(); } catch(_){} }, 80); }
+        if (!setup) return;
+        const showing = setup.classList.toggle('hidden') === false;
+        if (showing){ try { const c = window.getAIConfig && window.getAIConfig(); if (c && c.apiKey) keyIn.value = c.apiKey; keyIn.focus(); } catch(_){} }
     });
+    const saveKey = () => {
+        const key = (keyIn.value || '').trim();
+        if (!key || key.length < 12){ if (window.notify) notify('paste a valid OpenAI key (sk-…)'); return; }
+        try { if (window.saveAIConfig) window.saveAIConfig({ provider: 'openai', apiKey: key }); } catch(e){ console.warn('[key]', e); }
+        setup.classList.add('hidden'); refreshAI();
+        const ok = window.__aiReady && window.__aiReady();
+        if (window.notify) notify(ok ? '✓ AI CONNECTED — generation is real now' : 'key saved');
+    };
+    if (saveBtn) saveBtn.addEventListener('click', saveKey);
+    if (keyIn) keyIn.addEventListener('keydown', e => { if (e.key === 'Enter') saveKey(); });
     refreshAI(); setInterval(refreshAI, 2000);
     const cl = document.getElementById('sg-close'); if (cl) cl.addEventListener('click', () => { const p = document.getElementById('scene-graph'); if (p) p.classList.remove('show'); });
     // menu → STUDIO opens the film studio and focuses the composer.
@@ -8439,16 +8465,21 @@ function __removeCastActor(id){ const a = __castActors[id]; if (!a) return;
 const FNCAM = { perception:'wide', action:'behind', affection:'close', opsign:'aerial', sonsign:'low', crystal:'front', recollection:'close' };
 const __RIG_SYS = 'You are a master vehicle artist for THUNDER RIGS. Reply with ONLY one JavaScript function, no fences, no prose:\nfunction build(g, VG, THREE){ ... }\nUse VG: box(w,h,d,m) cyl(r1,r2,h,m,seg) cone sphere ico torus + wheels knobbyWheel(r,w,hub)/slickWheel + materials paint(hex,{rough,metal}) matte metalMat goldMat emiss(hex,i) makeGlass + headlight(hex) glow(hex) contactShadow(w,d). Helpers INSIDE build. A drivable car-scale rig (~4x2x2 units), wheels grounded, under 200 meshes.';
 const __FORT_SYS = 'You are a fortification builder for THUNDER RIGS. Reply with ONLY one JavaScript function, no fences, no prose:\nfunction build(w, WG, THREE){ ... return w; }\nOne focal structure near the origin: WG.box/cyl/cone/sphere/torus + WG.flat(hex,{rough,metal})/WG.lit(hex,i); WG.put(mesh,x,y,z,ry) places, WG.solid(mesh,w,h,d) makes it collide; under 60 meshes; all parts within 12 units of origin; WG.rand(seed) for randomness.';
+// A real, usable key means provider != thunder (the proxy is capped/unreliable)
+// AND an apiKey is set. Generation uses this — never the dead proxy.
+function __aiReady(){ try { const c = getAIConfig(); return c.provider !== 'thunder' && !!c.apiKey; } catch(_){ return false; } }
+window.__aiReady = __aiReady;
 async function __forgeAssetCode(kind, prompt){
-    let hasKey = false; try { hasKey = aiLocalAvailable(); } catch(_){}
-    if (hasKey && window.FORGE){
+    if (__aiReady() && window.FORGE){
         const sys = (kind === 'cast' ? __RIG_SYS : __FORT_SYS) + '\nDesign for: "' + String(prompt).slice(0,160) + '"';
         try {
+            notify('◆ AI FORGING ' + kind.toUpperCase() + '…');
             const reply = await Promise.race([ requestAIText(String(prompt), sys, null, 4000, { task: 'film-' + kind }),
-                new Promise((_, r) => setTimeout(() => r(new Error('timeout')), 45000)) ]);
+                new Promise((_, r) => setTimeout(() => r(new Error('timed out (30s)')), 30000)) ]);
             const src = FORGE.sanitize(String(reply || '')); const scan = FORGE.jsScan(src);
             if (/function\s+build\s*\(/.test(src) && scan.brace === 0 && scan.paren === 0 && src.length > 60) return { src, real: true };
-        } catch(e){ console.warn('[film forge]', e && e.message); }
+            notify('AI returned unusable code — stand-in');
+        } catch(e){ const m = String((e && e.message) || e).slice(0, 64); window.__lastGenErr = m; notify('AI ERROR: ' + m + ' — stand-in'); console.warn('[film forge]', e); }
     }
     const lib = kind === 'cast' ? window.GOLDEN : window.GOLDEN_DRAFTS;
     try { const g = lib && lib.pick(prompt); if (g && g.entry && g.entry.code) return { src: g.entry.code, real: false }; } catch(_){}
@@ -8511,7 +8542,7 @@ window.__filmGen = { cast: __genCast, set: __genSet, section: __genSection, buil
 async function __genImagePrompt(i){
     const bp = TWIN.lastBlueprint; if (!bp || !bp.beats[i]) return; const b = bp.beats[i];
     const { thing, name } = TWIN.seedParts(bp.seed);
-    let hasKey = false; try { hasKey = aiLocalAvailable(); } catch(_){}
+    let hasKey = __aiReady();
     if (hasKey){
         const sys = 'You are ABC CINEOSIS. Write ONE concrete ' + b.fn + '-image for the ' + b.layer.toUpperCase() + ' of a film about "' + bp.seed + '" as a single vivid sentence — materials, gesture, light; no meta words like cinematic/beautiful. Reply with ONLY the sentence.';
         try { const r = await Promise.race([ requestAIText(bp.seed + ' — ' + b.fn + ' ' + b.layer, sys, null, 200, { task: 'image' }),
@@ -10584,6 +10615,9 @@ function saveAIConfig(config) {
     }));
     setTimeout(() => { try { window.__refreshStdAgentStatus && window.__refreshStdAgentStatus(); } catch(_){} }, 0);
 }
+// expose to the FILM STUDIO's separate inline script (paste-a-key flow)
+window.getAIConfig = getAIConfig;
+window.saveAIConfig = saveAIConfig;
 function aiLocalAvailable(config = getAIConfig()) {
     if (config.provider === 'thunder') return !!aiWorkerUrl(config);
     return !!config.apiKey;
@@ -16864,7 +16898,7 @@ const TWIN = (() => {
         notify('🎬 COMPOSING — "' + String(seed).slice(0, 40) + '"…');
         const golden = goldenFilm(seed);
         let bp = golden;
-        let useAI = false; try { useAI = aiLocalAvailable(); } catch(_){}   // direct key only — the proxy can stall
+        let useAI = false; try { useAI = (window.__aiReady ? __aiReady() : (getAIConfig().provider !== 'thunder' && !!getAIConfig().apiKey)); } catch(_){}
         if (useAI) {
             const sys = 'You are ABC CINEOSIS, a cybernetic cinema system. Compose a film as JSON ONLY (no prose, no fences):\n' +
                 '{"format":"cineosis-film/v1","title":"...","seed":"...","engine":"one sentence: how past/present/future interact",' +
