@@ -99,7 +99,7 @@ body.menu-open #toolbars { top:max(72px,calc(env(safe-area-inset-top) + 56px)); 
 
 /* ---- SCENE GRAPH (LEFT SIDE) ---- */
 /* FILM STUDIO panel — clears the thundermark, fills the left column, scrolls */
-#scene-graph { position: absolute; left: 12px; top: calc(var(--lane-top, 12px) + 78px); bottom: max(150px, calc(env(safe-area-inset-bottom) + 150px)); max-height: none; width: 264px; max-width: calc(100vw - 24px); background: rgba(6,9,12,.95); border: 1px solid rgba(0,255,136,.4); border-radius: 12px; backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); display: none; flex-direction: column; z-index: 11; pointer-events: auto; box-shadow: 0 12px 38px rgba(0,0,0,0.62); overflow: hidden; }
+#scene-graph { position: absolute; left: 12px; top: calc(var(--lane-top, 12px) + 78px); bottom: max(150px, calc(env(safe-area-inset-bottom) + 150px)); max-height: none; width: 304px; max-width: calc(100vw - 24px); background: rgba(6,9,12,.95); border: 1px solid rgba(0,255,136,.4); border-radius: 12px; backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); display: none; flex-direction: column; z-index: 11; pointer-events: auto; box-shadow: 0 12px 38px rgba(0,0,0,0.62); overflow: hidden; }
 #scene-graph .sg-header{ display:flex; align-items:center; justify-content:space-between; padding:10px 12px; font-size:10px; letter-spacing:.18em; color:#8affc8; border-bottom:1px solid rgba(0,255,136,.2); font-weight:800; flex:0 0 auto; }
 #scene-graph .sg-header button{ background:none; border:1px solid rgba(255,255,255,.2); color:#ccc; border-radius:7px; width:24px; height:24px; font-size:12px; cursor:pointer; }
 #scene-graph .sg-list{ padding: 8px; flex:1 1 auto; }
@@ -145,12 +145,12 @@ body.menu-open #toolbars { top:max(72px,calc(env(safe-area-inset-top) + 56px)); 
 #scene-graph .sg-group.sg-film .sg-gcount{flex:0 0 auto;background:rgba(168,85,247,.26);color:#e4d3ff;font-size:8px;font-weight:700;padding:2px 6px;border-radius:6px;text-transform:none;letter-spacing:0}
 #scene-graph .sg-group.sg-filmmaster{background:rgba(168,85,247,.22);border-top:none}
 /* film rows: name (truncates) + ready-made prompt (2 lines) + a fixed button rail */
-#scene-graph .sg-filmrow{display:flex;align-items:center;gap:7px;padding:8px 9px;border:1px solid rgba(168,85,247,.24);border-radius:9px;margin:0 0 5px;background:rgba(168,85,247,.05);cursor:default}
+#scene-graph .sg-filmrow{display:flex;align-items:center;gap:8px;padding:10px 10px;border:1px solid rgba(168,85,247,.24);border-radius:9px;margin:0 0 5px;background:rgba(168,85,247,.05);cursor:default}
 #scene-graph .sg-filmrow.built{border-color:rgba(0,255,136,.42);background:rgba(0,255,136,.06)}
 #scene-graph .sg-fl{flex:1 1 auto;min-width:0;cursor:pointer;overflow:hidden}
-#scene-graph .sg-fnm{display:block;font-size:10.5px;font-weight:800;letter-spacing:.02em;color:#ece0ff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#scene-graph .sg-fnm{display:block;font-size:11.5px;font-weight:800;letter-spacing:.02em;color:#ece0ff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 #scene-graph .sg-filmrow.built .sg-fnm{color:#a7f3cf}
-#scene-graph .sg-fpr{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;font-size:9px;font-weight:500;color:#9d92b8;line-height:1.3;overflow:hidden;margin-top:2px}
+#scene-graph .sg-fpr{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;font-size:10px;font-weight:500;color:#a89dc4;line-height:1.35;overflow:hidden;margin-top:2px}
 #scene-graph .sg-fl:hover .sg-fnm{color:#fff}
 /* button rail — fixed size, right-aligned, never pushes the row wide */
 #scene-graph .sg-fbtn{flex:0 0 auto;background:rgba(25,230,200,.14);border:1px solid rgba(25,230,200,.4);color:#19e6c8;border-radius:7px;font:800 8.5px/1 inherit;letter-spacing:.04em;padding:6px 7px;min-width:34px;text-align:center;cursor:pointer;-webkit-tap-highlight-color:transparent}
@@ -8564,14 +8564,21 @@ async function __genCast(i){
     const group = code ? window.__buildVehicleFromCode(code) : null;
     if (!group){ notify('CAST FORGE FAILED — ' + (window.__vgLastErr || '').slice(0, 40)); return; }
     __removeCastActor(id);
-    // place as a standing actor in front of the player, facing you
+    // FAN THE CAST: each actor gets its own mark in an arc in front of the
+    // player (index-offset sideways) — never stacked on one spot.
     let spot;
-    try { const fwd = new THREE.Vector3(Math.sin(P.yaw), 0, Math.cos(P.yaw)); spot = P.pos.clone().addScaledVector(fwd, 11); }
-    catch(_){ spot = new THREE.Vector3(0, 0, -11); }
+    try {
+        const fwd = new THREE.Vector3(Math.sin(P.yaw), 0, Math.cos(P.yaw));
+        const right = new THREE.Vector3(Math.cos(P.yaw), 0, -Math.sin(P.yaw));
+        const lane = (i - ((bp.cast.length - 1) / 2)) * 8;
+        spot = P.pos.clone().addScaledVector(fwd, 12).addScaledVector(right, lane);
+    } catch(_){ spot = new THREE.Vector3(i * 8 - 8, 0, -12); }
     group.position.set(spot.x, group.position.y, spot.z);
     try { group.rotation.y = P.yaw + Math.PI; } catch(_){}
-    group.userData = Object.assign(group.userData || {}, { name: c.name, label: c.name, type: 'cast-actor', __castId: id });
+    // SELECTABLE + MOVABLE: register with the arena's select/gizmo machinery
+    group.userData = Object.assign(group.userData || {}, { id: (crypto.randomUUID ? crypto.randomUUID() : 'ca' + Date.now()), name: c.name, label: c.name, type: 'cast-actor', isAssembly: true, __castId: id });
     scene.add(group);
+    try { if (typeof selectableObjects !== 'undefined') selectableObjects.push(group); } catch(_){}
     __castActors[id] = { group, name: c.name, code };
     try { camMode = 'FREE'; camera.position.copy(spot).add(new THREE.Vector3(5, 4, 9)); orbit.target.copy(spot.clone().setY(1.2)); } catch(_){}
     try { if (typeof spark === 'function') spark(spot.clone().setY(1), 0x19e6c8, 14, 30, 12, 0.8); if (typeof SFX!=='undefined' && SFX.complete) SFX.complete(); } catch(_){}
@@ -16538,6 +16545,17 @@ const TWIN = (() => {
     }
     function fireBeat(b, i) {
         try {
+            // PERFORM REUSES WHAT YOU BUILT: a fort beat whose id already stands
+            // in the scene is kept, not rebuilt; a cast beat whose actor exists
+            // is kept. Your generated geometry IS the film.
+            if (b.kind === 'fort' && b.id) {
+                let exists = false; try { scene.traverse(o => { if (!exists && o.userData && o.userData.__fortId === b.id) exists = true; }); } catch(_){}
+                if (exists) return 'kept built: ' + b.id;
+            }
+            if (b.kind === 'say' && /^cast /.test(b.prompt || '')) {
+                try { const nm = (b.prompt.match(/named ([a-z0-9-]+)/) || [])[1];
+                    if (nm && typeof __castActors !== 'undefined' && Object.values(__castActors).some(a => a && a.name && a.name.toLowerCase() === nm.toLowerCase())) return 'kept cast: ' + nm; } catch(_){}
+            }
             if ((b.kind === 'say' || b.kind === 'motion') && b.prompt) return BUS.say(b.prompt, 'twin');
             if (b.kind === 'cue' && b.prompt) {   // sound design: the sonic lexicon -> the SFX engine
                 const s = String(b.prompt).toLowerCase();
