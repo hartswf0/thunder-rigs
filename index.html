@@ -15763,6 +15763,26 @@ const GAME_HOST = (function(){
             sh.addEventListener('click', () => { prefs.hidden = []; savePrefs(); renderPackages(); });
             head.appendChild(sh); }
         mount.appendChild(head);
+        // LAW 2 (film/THEORY.md): composed FILMS are games — load them through PLAY
+        try {
+            const films = JSON.parse(localStorage.getItem('trig.films.v1') || '[]');
+            if (films.length){
+                const fh = document.createElement('div');
+                fh.style.cssText = 'font-size:9px;font-weight:800;letter-spacing:.22em;color:#d8b4fe;margin-top:2px;';
+                fh.textContent = 'FILMS · COMPOSED';
+                mount.appendChild(fh);
+                films.slice(0, 5).forEach(f => {
+                    const row = document.createElement('button'); row.type = 'button';
+                    row.style.cssText = 'display:flex;justify-content:space-between;align-items:center;gap:8px;background:rgba(168,85,247,.10);border:1px solid rgba(168,85,247,.4);color:#ece0ff;border-radius:8px;font:700 10px/1.2 inherit;letter-spacing:.04em;padding:9px 10px;cursor:pointer;text-align:left;';
+                    row.innerHTML = '<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + (f.title || f.id) + '</span><span style="flex:0 0 auto;color:#a855f7;">▸ PLAY FILM</span>';
+                    row.addEventListener('click', () => {
+                        try { document.getElementById('match-modal')?.classList.remove('show'); } catch(_){}
+                        try { if (window.TWIN && f.bp){ TWIN.performTwin(TWIN.compileFilm(f.bp)); } } catch(e){ console.warn('[film play]', e); }
+                    });
+                    mount.appendChild(row);
+                });
+            }
+        } catch(_){}
         pkgs.filter(p => !prefs.hidden.includes(p.id))
             .sort((a,b) => (prefs.stars.includes(b.id)?1:0) - (prefs.stars.includes(a.id)?1:0))
             .forEach(p => mount.appendChild(cardRow(p)));
@@ -16990,11 +17010,28 @@ const TWIN = (() => {
         // NOTHING yet — you generate each asset on demand (whole / section /
         // one) so the scene never crowds with things you didn't ask for.
         lastCompiled = compileFilm(bp);
+        // LAW 2: a film is a GAME — shelve it so it appears in the PLAY games list
+        try { const shelf = JSON.parse(localStorage.getItem('trig.films.v1') || '[]');
+            shelf.unshift({ id: (bp.title || 'film').toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 40), title: bp.title, seed: bp.seed, bp });
+            localStorage.setItem('trig.films.v1', JSON.stringify(shelf.slice(0, 8))); } catch(_){}
         try { if ((document.body.classList.contains('in-ritual') || document.body.classList.contains('pre-enter')) && typeof window.releaseToSneak === 'function') window.releaseToSneak(); } catch(_){}
         notify('🎬 ' + (bp.title || 'FILM') + ' — ' + (bp.beats || []).length + ' beats planned' + (bp === golden ? ' (golden poet)' : ' (model composed)') + ' — GENERATE from the scene graph');
         return { ok: true, planned: (bp.beats || []).length, deferred: true };
     }
-    function performFilm(){ if (!lastCompiled) return { ok: false }; return performTwin(lastCompiled); }
+    function performFilm(){
+        if (!lastCompiled) return { ok: false };
+        // GATE: performing an empty set is a blank take — build something first
+        try { if (typeof __filmBuilt !== 'undefined' && __filmBuilt.size === 0){ notify('NOTHING BUILT YET — GEN cast/set (or BUILD ALL), then PERFORM'); return { ok: false, gated: true }; } } catch(_){}
+        // YOUR STAGED REEL WINS: if you marked/staged shots, the take flies THOSE
+        // cameras — the compiled beat clock still fires geometry/cues underneath.
+        const staged = (window.CINE && CINE.shots && CINE.shots.length) ? CINE.shots.slice() : null;
+        const r = performTwin(lastCompiled);
+        if (staged && staged.length){
+            try { CINE.stopPlay && CINE.stopPlay(true); CINE.restore({ v: 1, shots: staged }); CINE.play(false);
+                notify('PERFORMING YOUR REEL — ' + staged.length + ' staged shots'); } catch(_){}
+        }
+        return r;
+    }
     async function performAI(doc, onBeat) {
         notify('AI BAKE — FORGING EVERY BEAT…');
         const s = await bakeAI(doc, onBeat);
