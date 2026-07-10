@@ -8504,8 +8504,183 @@ const __filmBuilt = new Set();          // asset keys already generated
 const __filmCollapsed = new Set(['shots:past', 'shots:present', 'shots:future']);   // big shot lists start folded
 const __castActors = {};                // castId -> { group, name, code } — native rig actors, NOT bots
 function __removeCastActor(id){ const a = __castActors[id]; if (!a) return;
+    try { const ix = selectableObjects.indexOf(a.group); if (ix > -1) selectableObjects.splice(ix, 1); } catch(_){}
     try { scene.remove(a.group); a.group.traverse(o => { try { o.geometry && o.geometry.dispose(); o.material && o.material.dispose && o.material.dispose(); } catch(_){} }); } catch(_){}
     delete __castActors[id]; }
+// ── THE LEDGER (film/LEDGER.md) — one row per film entity, cradle to grave ──
+// The named disease: nothing linked what was generated, performed, framed,
+// drivable, directable. The cure: ONE row per entity. Composing writes rows +
+// visible placeholders at every mark IMMEDIATELY (placement before generation);
+// GEN only ever swaps the object INSIDE its own row — so generating one thing
+// can never delete another. Placement is sovereign: drag updates the row,
+// regeneration rebuilds AT the row's placement. Budget is ledger-computed
+// BEFORE forging. Rows are also LIBRARY entries (film/LIBRARY.md): thumb,
+// tags, mood, favorite — same record, two views.
+window.LEDGER = (() => {
+    const rows = {};                    // id -> the row
+    const ghosts = {};                  // ghostKey -> THREE.Group placeholder
+    const BUDGET = 1600;                // global film mesh budget (inv. 4)
+    const EST = { cast: 200, set: 60, 'shot-stage': 60, world: 500 };   // per-forge worst case
+    function tagSprite(text, color){
+        const c = document.createElement('canvas'); c.width = 256; c.height = 64;
+        const x = c.getContext('2d');
+        x.fillStyle = 'rgba(6,12,14,0.78)'; x.fillRect(0, 0, 256, 64);
+        x.strokeStyle = color; x.lineWidth = 3; x.strokeRect(1.5, 1.5, 253, 61);
+        x.fillStyle = color; x.font = '700 30px ui-monospace, monospace'; x.textAlign = 'center'; x.textBaseline = 'middle';
+        x.fillText(String(text).slice(0, 15).toUpperCase(), 128, 34);
+        const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(c), transparent: true, depthTest: false }));
+        sp.scale.set(5.6, 1.4, 1); sp.renderOrder = 999;
+        return sp;
+    }
+    function upsert(id, f){
+        const r = rows[id] || (rows[id] = { id, kind: 'set', name: '', prompt: '', code: null,
+            provenance: null,                     // 'model' | 'golden' | 'hand' — never lied about
+            object: null, meshes: null,           // cast: live group · set/shot: forged mesh list
+            placement: { x: 0, z: 0, ry: 0 },     // WHERE — survives regeneration (inv. 2)
+            physics: 'visual', cert: null, shots: [], verbs: [],
+            state: 'planned',                     // planned|generating|built|placed|performing
+            thumb: null, tags: [], mood: null, favorite: false, usedAt: 0 });
+        Object.assign(r, f || {}); return r;
+    }
+    const get = id => rows[id] || null;
+    const all = () => Object.values(rows);
+    // ghost placeholder — the entity's slot, visible from t=0 (field report 7)
+    const GHOST_DIMS = { cast: [3.6, 2.2, 2.2], set: [7, 5.5, 7], 'shot-stage': [2.4, 2.2, 2.4], world: [10, 4, 10] };
+    function ghost(key, name, kind, placement, color){
+        clearGhostKey(key);
+        const d = GHOST_DIMS[kind] || GHOST_DIMS.set;
+        const g = new THREE.Group();
+        const box = new THREE.Mesh(new THREE.BoxGeometry(d[0], d[1], d[2]),
+            new THREE.MeshStandardMaterial({ color: 0x19e6c8, emissive: 0x0a4c44, transparent: true, opacity: kind === 'shot-stage' ? 0.16 : 0.26, wireframe: true }));
+        box.position.y = d[1] / 2 + 0.05; g.add(box);
+        const tag = tagSprite(name || key, color || (kind === 'cast' ? '#ffd23f' : kind === 'shot-stage' ? '#a855f7' : '#19e6c8'));
+        tag.position.y = d[1] + 1.1; if (kind === 'shot-stage') tag.scale.set(4.2, 1.05, 1); g.add(tag);
+        g.position.set(placement.x || 0, 0, placement.z || 0); g.rotation.y = placement.ry || 0;
+        g.userData = { id: 'ghost-' + key, name: (name || key) + ' · planned', label: name || key,
+            type: 'ledger-ghost', isAssembly: true, __ledgerId: key, __ghost: true };
+        scene.add(g); ghosts[key] = g;
+        try { if (typeof selectableObjects !== 'undefined') selectableObjects.push(g); } catch(_){}
+        return g;
+    }
+    function clearGhostKey(key){
+        const g = ghosts[key]; if (!g) return;
+        try { const ix = selectableObjects.indexOf(g); if (ix > -1) selectableObjects.splice(ix, 1); } catch(_){}
+        try { scene.remove(g); g.traverse(o => { try { o.geometry && o.geometry.dispose(); o.material && o.material.dispose && o.material.dispose(); } catch(_){} }); } catch(_){}
+        delete ghosts[key];
+    }
+    // a built motif form also clears its family slot (3 forms share one anchor)
+    function clearGhostsFor(id){
+        clearGhostKey(id);
+        const m = String(id).match(/^(motif-\d+)-/); if (m) clearGhostKey(m[1]);
+    }
+    function clearAllGhosts(){ Object.keys(ghosts).forEach(clearGhostKey); }
+    // GEN swaps the object INSIDE its row — never touches another row (inv. 7)
+    function setObject(id, obj){
+        const r = upsert(id);
+        if (r.object && r.object !== obj){
+            try { const ix = selectableObjects.indexOf(r.object); if (ix > -1) selectableObjects.splice(ix, 1); } catch(_){}
+            try { scene.remove(r.object); r.object.traverse(o => { try { o.geometry && o.geometry.dispose(); o.material && o.material.dispose && o.material.dispose(); } catch(_){} }); } catch(_){}
+        }
+        r.object = obj; if (obj && obj.userData) obj.userData.__ledgerId = id;
+        clearGhostsFor(id);
+        r.state = 'placed'; r.usedAt = Date.now();
+        return r;
+    }
+    function setMeshes(id, meshes, cert){
+        const r = upsert(id);
+        r.meshes = meshes || null; r.cert = cert || r.cert;
+        (meshes || []).forEach(m2 => { if (m2 && m2.userData) m2.userData.__ledgerId = id; });
+        clearGhostsFor(id);
+        r.state = 'placed'; r.physics = 'solid'; r.usedAt = Date.now();
+        return r;
+    }
+    // remove a fort row's standing meshes (regen = swap in place, not stack)
+    function removeBuiltFort(id){
+        let n = 0;
+        try {
+            const doomed = [];
+            scene.traverse(o => { if (o.userData && o.userData.__fortId === id) doomed.push(o); });
+            doomed.forEach(o => {
+                try { const pi = physicsMeshes.indexOf(o); if (pi > -1) physicsMeshes.splice(pi, 1); } catch(_){}
+                try { const si = selectableObjects.indexOf(o); if (si > -1) selectableObjects.splice(si, 1); } catch(_){}
+                try { scene.remove(o); o.geometry && o.geometry.dispose(); o.material && o.material.dispose && o.material.dispose(); } catch(_){}
+                n++;
+            });
+        } catch(_){}
+        const r = rows[id]; if (r) r.meshes = null;
+        return n;
+    }
+    // placement is sovereign (inv. 2): the drag wrote the object; mirror the row
+    function syncFromObject(obj){
+        if (!obj || !obj.userData || !obj.userData.__ledgerId) return false;
+        const id = obj.userData.__ledgerId;
+        // a motif family ghost ('motif-0') moves ALL three form rows — one anchor
+        const targets = rows[id] ? [rows[id]] : all().filter(x => x.id.indexOf(id + '-') === 0);
+        if (!targets.length) return false;
+        targets.forEach(t => { t.placement = { x: +obj.position.x.toFixed(2), z: +obj.position.z.toFixed(2), ry: +obj.rotation.y.toFixed(3) }; });
+        return true;
+    }
+    // budget is ledger-computed BEFORE forging (inv. 4) — refuse early, loudly
+    function spent(){ return all().reduce((n, r) => n + ((r.cert && r.cert.meshes) || 0), 0); }
+    function precheck(kind){
+        const est = EST[kind] || 60, used = spent();
+        if (used + est > BUDGET) return { ok: false, used, est, budget: BUDGET };
+        return { ok: true, used, est, budget: BUDGET };
+    }
+    function bounds(id){
+        const r = rows[id]; if (!r) return null;
+        const b = new THREE.Box3();
+        if (r.object) b.setFromObject(r.object);
+        else if (r.meshes && r.meshes.length){ r.meshes.forEach(m2 => { try { b.expandByObject(m2); } catch(_){} }); }
+        else return null;
+        return b.isEmpty() ? null : b;
+    }
+    // COMPOSING WRITES THE LEDGER (inv. 1): a row + a visible mark per entity,
+    // before any generation. A new film releases the old film's unbuilt slots.
+    function compose(bp){
+        all().forEach(r => { if (r.state === 'planned') delete rows[r.id]; });
+        clearAllGhosts();
+        // cast — fanned marks in an arc in front of the player
+        (bp.cast || []).forEach((c, i) => {
+            const id = 'cast-' + i;
+            let spot;
+            try {
+                const fwd = new THREE.Vector3(Math.sin(P.yaw), 0, Math.cos(P.yaw));
+                const right = new THREE.Vector3(Math.cos(P.yaw), 0, -Math.sin(P.yaw));
+                const lane = (i - ((bp.cast.length - 1) / 2)) * 8;
+                spot = P.pos.clone().addScaledVector(fwd, 12).addScaledVector(right, lane);
+            } catch(_){ spot = new THREE.Vector3(i * 8 - 8, 0, -12); }
+            const shots = (bp.beats || []).map((b, bi) => ({ b, bi })).filter(x => (x.b.subject || '').toLowerCase() === c.name.toLowerCase()).map(x => x.bi);
+            const r = upsert(id, { kind: 'cast', name: c.name, prompt: c.desc || '', shots,
+                verbs: ['patrol', 'orbit', 'guard', 'freeze', 'flee'], tags: ['character'], state: rows[id] && rows[id].object ? rows[id].state : 'planned' });
+            if (!r.object){ r.placement = { x: +spot.x.toFixed(2), z: +spot.z.toFixed(2), ry: (typeof P !== 'undefined' && P.yaw != null) ? +(P.yaw + Math.PI).toFixed(3) : 0 };
+                ghost(id, c.name, 'cast', r.placement); }
+        });
+        // motifs — one anchor per motif; three form rows share it (the place transforms)
+        (bp.motifs || []).forEach((m, mi) => {
+            const a = mi * 2.1, anchor = { x: Math.round(Math.cos(a) * 26), z: Math.round(Math.sin(a) * 26), ry: 0 };
+            let anyBuilt = false;
+            ['past', 'present', 'future'].forEach(form => {
+                const id = 'motif-' + mi + '-' + form;
+                const r = upsert(id, { kind: 'set', name: m.name + ' · ' + form, prompt: m[form] || m.name, tags: ['structure'] });
+                if (r.meshes && r.meshes.length) anyBuilt = true; else r.placement = Object.assign({}, anchor);
+            });
+            if (!anyBuilt) ghost('motif-' + mi, m.name, 'set', anchor);
+        });
+        // shots — the 21-image matrix, each image owns a stage slot on the ring
+        (bp.beats || []).forEach((b, i) => {
+            const id = 'shot-' + i;
+            const ang = i * 0.62, mark = { x: Math.round(Math.cos(ang) * 32), z: Math.round(Math.sin(ang) * 32), ry: 0 };
+            const r = upsert(id, { kind: 'shot-stage', name: (b.fn || 'image') + '·' + (b.layer || ''), prompt: b.image || '', shots: [i], tags: ['image', b.layer || ''] });
+            if (!(r.meshes && r.meshes.length)){ r.placement = mark; ghost(id, 'S' + (i + 1) + ' ' + (b.fn || '').slice(0, 7), 'shot-stage', mark); }
+        });
+        try { if (typeof updateSceneGraph === 'function') updateSceneGraph(); } catch(_){}
+        return all().length;
+    }
+    return { rows, upsert, get, all, ghost, clearGhostsFor, clearAllGhosts, setObject, setMeshes,
+        removeBuiltFort, syncFromObject, spent, precheck, bounds, compose, BUDGET };
+})();
+window.__ledgerCompose = bp => { try { return LEDGER.compose(bp); } catch(e){ console.warn('[ledger compose]', e); return 0; } };
 const FNCAM = { perception:'wide', action:'behind', affection:'close', opsign:'aerial', sonsign:'low', crystal:'front', recollection:'close' };
 const __RIG_SYS = 'You are a master vehicle artist for THUNDER RIGS. Reply with ONLY one JavaScript function, no fences, no prose:\nfunction build(g, VG, THREE){ ... }\nHARD CONTRACT (violations = the rig is rejected):\n- Add EVERY part to the PROVIDED group g (g.add(part)). NEVER create your own root group, NEVER return a value — build() returns nothing.\n- VG.box(w,h,d,m) VG.cyl(r1,r2,h,m,seg) VG.cone VG.sphere VG.ico VG.torus(r,t,m) RETURN FINISHED MESHES (geometry+material applied). Position them and g.add them. NEVER wrap them in new THREE.Mesh, never pass them as geometry.\n- Materials: paint(hex,{rough,metal}) matte metalMat goldMat emiss(hex,i) makeGlass; details: headlight(hex) glow(hex) knobbyWheel(r,w,hub) slickWheel contactShadow(w,d).\nA drivable car-scale rig (~4x2x2 units), wheels grounded, under 200 meshes. Helpers INSIDE build.';
 const __FORT_SYS = 'You are a fortification builder for THUNDER RIGS. Reply with ONLY one JavaScript function, no fences, no prose:\nfunction build(w, WG, THREE){ ... return w; }\nOne focal structure near the origin: WG.box/cyl/cone/sphere/torus + WG.flat(hex,{rough,metal})/WG.lit(hex,i); WG.put(mesh,x,y,z,ry) places, WG.solid(mesh,w,h,d) makes it collide; under 60 meshes; all parts within 12 units of origin; WG.rand(seed) for randomness.';
@@ -8556,30 +8731,35 @@ const __setAnchor = mi => { const a = mi * 2.1; return { x: Math.round(Math.cos(
 async function __genCast(i){
     const bp = TWIN.lastBlueprint; if (!bp || !bp.cast[i]) return; const c = bp.cast[i];
     const id = 'cast-' + i, prompt = c.desc || 'a storm rig';
+    // THE LEDGER (inv. 4): budget is computed BEFORE forging — refuse early, loudly
+    const pc = LEDGER.precheck('cast');
+    if (!pc.ok){ notify('✗ FILM BUDGET FULL — ' + pc.used + '/' + pc.budget + ' meshes; casting needs ~' + pc.est); if (window.AICON) AICON.log('LEDGER refused cast · budget ' + pc.used + '/' + pc.budget, 'wrn'); return; }
+    // the row exists from compose (placeholder standing at its mark); claim it
+    const row = LEDGER.upsert(id, { kind: 'cast', name: c.name, prompt, state: 'generating' });
+    try { updateSceneGraph(); } catch(_){}
     notify('⚒ CASTING ' + c.name.toUpperCase() + '…');
     // NATIVE HELLO generation — exactly like the rig ritual: AI vcode if a key is
     // set, else the golden rig picked by the prompt. NO bot, NO materials economy.
     const forged = await __forgeAssetCode('cast', prompt);
     const code = forged && forged.src;
     const group = code ? window.__buildVehicleFromCode(code) : null;
-    if (!group){ notify('CAST FORGE FAILED — ' + (window.__vgLastErr || '').slice(0, 40)); return; }
+    if (!group){ notify('CAST FORGE FAILED — ' + (window.__vgLastErr || '').slice(0, 40)); row.state = row.object ? 'placed' : 'planned'; try { updateSceneGraph(); } catch(_){} return; }
     __removeCastActor(id);
-    // FAN THE CAST: each actor gets its own mark in an arc in front of the
-    // player (index-offset sideways) — never stacked on one spot.
-    let spot;
-    try {
-        const fwd = new THREE.Vector3(Math.sin(P.yaw), 0, Math.cos(P.yaw));
-        const right = new THREE.Vector3(Math.cos(P.yaw), 0, -Math.sin(P.yaw));
-        const lane = (i - ((bp.cast.length - 1) / 2)) * 8;
-        spot = P.pos.clone().addScaledVector(fwd, 12).addScaledVector(right, lane);
-    } catch(_){ spot = new THREE.Vector3(i * 8 - 8, 0, -12); }
+    // PLACEMENT IS SOVEREIGN (inv. 2): build AT the row's mark — set at compose,
+    // moved only by the player's drag. Regeneration lands exactly where the
+    // placeholder (or the last body) stood. Never recomputed here.
+    const spot = new THREE.Vector3(row.placement.x || 0, 0, row.placement.z || 0);
     group.position.set(spot.x, group.position.y, spot.z);
-    try { group.rotation.y = P.yaw + Math.PI; } catch(_){}
+    try { group.rotation.y = row.placement.ry || 0; } catch(_){}
     // SELECTABLE + MOVABLE: register with the arena's select/gizmo machinery
     group.userData = Object.assign(group.userData || {}, { id: (crypto.randomUUID ? crypto.randomUUID() : 'ca' + Date.now()), name: c.name, label: c.name, type: 'cast-actor', isAssembly: true, __castId: id });
     scene.add(group);
     try { if (typeof selectableObjects !== 'undefined') selectableObjects.push(group); } catch(_){}
     __castActors[id] = { group, name: c.name, code };
+    // GEN swaps the object inside ITS row — placeholder out, actor in (inv. 7)
+    LEDGER.setObject(id, group);
+    LEDGER.upsert(id, { code, provenance: forged.real ? 'model' : 'golden', physics: 'visual',
+        cert: { meshes: (() => { let n = 0; try { group.traverse(o => { if (o.isMesh) n++; }); } catch(_){} return n; })() } });
     try { camMode = 'FREE'; camera.position.copy(spot).add(new THREE.Vector3(5, 4, 9)); orbit.target.copy(spot.clone().setY(1.2)); } catch(_){}
     try { if (typeof spark === 'function') spark(spot.clone().setY(1), 0x19e6c8, 14, 30, 12, 0.8); if (typeof SFX!=='undefined' && SFX.complete) SFX.complete(); } catch(_){}
     __filmBuilt.add('cast:' + c.name);
@@ -8596,12 +8776,25 @@ function __editCastInHello(i){
 }
 async function __genSet(mi, form){
     const bp = TWIN.lastBlueprint; if (!bp || !bp.motifs[mi]) return; const m = bp.motifs[mi];
-    const prompt = m[form] || m.name, anchor = __setAnchor(mi), id = 'motif-' + mi + '-' + form;
+    const id = 'motif-' + mi + '-' + form, prompt = m[form] || m.name;
+    // LEDGER: budget precheck, then build AT the row's mark (drag moved it? honored)
+    const pc = LEDGER.precheck('set');
+    if (!pc.ok){ notify('✗ FILM BUDGET FULL — ' + pc.used + '/' + pc.budget + ' meshes'); if (window.AICON) AICON.log('LEDGER refused set · budget ' + pc.used + '/' + pc.budget, 'wrn'); return; }
+    const row = LEDGER.upsert(id, { kind: 'set', name: m.name + ' · ' + form, prompt, state: 'generating' });
+    if (!row.placement.x && !row.placement.z){ const a = __setAnchor(mi); row.placement = { x: a.x, z: a.z, ry: 0 }; }
+    const anchor = { x: row.placement.x, z: row.placement.z };
+    try { updateSceneGraph(); } catch(_){}
     notify('⚒ BUILDING "' + prompt.slice(0,30) + '"…');
     const forged = await __forgeAssetCode('set', prompt);
-    if (forged){ const r = window.__applyForgeFort(forged.src, anchor, id);
-        if (r && r.ok){ try { window.__broadcastFort(id, forged.src, anchor); } catch(_){} __filmBuilt.add('set:' + mi + ':' + form); notify('✓ "' + prompt.slice(0,30) + '"' + (forged.real ? ' — MODEL' : ' — stand-in')); }
-        else notify('✗ forge rejected'); }
+    if (forged){
+        LEDGER.removeBuiltFort(id);   // regen = swap in place, never stack (inv. 7)
+        const r = window.__applyForgeFort(forged.src, anchor, id);
+        if (r && r.ok){
+            LEDGER.setMeshes(id, (r.wg && r.wg.pending || []).map(s => s.mesh), r.cert);
+            LEDGER.upsert(id, { code: forged.src, provenance: forged.real ? 'model' : 'golden' });
+            try { window.__broadcastFort(id, forged.src, anchor); } catch(_){} __filmBuilt.add('set:' + mi + ':' + form); notify('✓ "' + prompt.slice(0,30) + '"' + (forged.real ? ' — MODEL' : ' — stand-in')); }
+        else { row.state = 'planned'; notify('✗ forge rejected'); } }
+    else { row.state = 'planned'; }
     try { updateSceneGraph(); } catch(_){}
 }
 async function __genSection(kind){
@@ -8635,17 +8828,29 @@ async function __genImageLayer(layer){
 async function __stageShot(i){
     const bp = TWIN.lastBlueprint; if (!bp || !bp.beats[i]) return; const b = bp.beats[i];
     const prompt = b.image || (b.fn + ' image'); const id = 'shot-' + i;
-    const ang = i * 0.62, anchor = { x: Math.round(Math.cos(ang) * 32), z: Math.round(Math.sin(ang) * 32) };
+    // LEDGER: the shot's stage slot was marked at compose; build AT it (inv. 2)
+    const pc = LEDGER.precheck('shot-stage');
+    if (!pc.ok){ notify('✗ FILM BUDGET FULL — ' + pc.used + '/' + pc.budget + ' meshes'); if (window.AICON) AICON.log('LEDGER refused shot · budget ' + pc.used + '/' + pc.budget, 'wrn'); return; }
+    const row = LEDGER.upsert(id, { kind: 'shot-stage', name: (b.fn || 'image') + '·' + (b.layer || ''), prompt, state: 'generating', shots: [i] });
+    if (!row.placement.x && !row.placement.z){ const ang = i * 0.62; row.placement = { x: Math.round(Math.cos(ang) * 32), z: Math.round(Math.sin(ang) * 32), ry: 0 }; }
+    const anchor = { x: row.placement.x, z: row.placement.z };
+    try { updateSceneGraph(); } catch(_){}
     notify('⚒ STAGING ' + (b.fn.toUpperCase()) + ' — "' + prompt.slice(0, 26) + '"…');
     const forged = await __forgeAssetCode('set', prompt);
-    if (forged){ const r = window.__applyForgeFort(forged.src, anchor, id);
+    if (forged){
+        LEDGER.removeBuiltFort(id);   // restage = swap in place (inv. 7)
+        const r = window.__applyForgeFort(forged.src, anchor, id);
         if (r && r.ok){ __filmBuilt.add('shot:' + i);
+            LEDGER.setMeshes(id, (r.wg && r.wg.pending || []).map(s => s.mesh), r.cert);
+            LEDGER.upsert(id, { code: forged.src, provenance: forged.real ? 'model' : 'golden' });
             try { window.__broadcastFort(id, forged.src, anchor); } catch(_){}
-            try { camMode = 'FREE'; const c = new THREE.Vector3(anchor.x, 3, anchor.z);
+            let c;
+            try { camMode = 'FREE'; c = new THREE.Vector3(anchor.x, 3, anchor.z);
                 camera.position.copy(c).add(new THREE.Vector3(1, 0.7, 1).normalize().multiplyScalar(26)); orbit.target.copy(c); } catch(_){}
             try { const s = { p: camera.position.toArray().map(n=>+n.toFixed(2)), t: c.toArray().map(n=>+n.toFixed(2)), mode:'FREE', hold:1.5, travel:2.4 }; if (window.CINE) CINE.shots[i] = s; } catch(_){}
             notify('✓ ' + b.fn.toUpperCase() + ' STAGED' + (forged.real ? ' · model' : ' · stand-in'));
-        } else notify('✗ shot forge rejected'); }
+        } else { row.state = 'planned'; notify('✗ shot forge rejected'); } }
+    else { row.state = 'planned'; }
     try { if (window.__camviz && __camviz.on) __camviz.refresh(); } catch(_){}
     try { updateSceneGraph(); } catch(_){}
 }
@@ -11920,6 +12125,9 @@ scene.add(transform);
 
 transform.addEventListener('dragging-changed', (e) => {
     orbit.enabled = !e.value;
+    // PLACEMENT IS SOVEREIGN (film/LEDGER.md inv. 2): dragging a film entity
+    // (placeholder or built body) writes its row — regeneration rebuilds THERE.
+    if (!e.value){ try { if (window.LEDGER && transform.object) LEDGER.syncFromObject(transform.object); } catch(_){} }
     if (window.__ritualCam) return;   // the HELLO rig builder persists its own edits — skip arena snapshot/codeview
     if (e.value) saveState();
     else { refreshCodeView(); sceneDirty = true; } // PATCH 4: drag moved geometry, update code view + flag snapshot
@@ -11996,11 +12204,12 @@ function selectObject(obj) {
     transform.attach(obj); physicsMeshes.forEach(m => { if (m.material && m.material.emissive) m.material.emissive.setHex(0x000000); });
     
     if (obj.userData.isAssembly) {
-        obj.children.forEach(m => m.material.emissive.setHex(0x222222));
+        // ghosts/sprites/basic materials have no .emissive — highlight what can be
+        obj.children.forEach(m => { if (m.material && m.material.emissive) m.material.emissive.setHex(0x222222); });
         document.getElementById('dim-sliders').style.display = 'none'; document.getElementById('scale-slider').style.display = 'flex';
         document.getElementById('sl-scale').value = obj.scale.x; document.getElementById('val-scale').textContent = obj.scale.x.toFixed(1);
     } else {
-        obj.material.emissive.setHex(0x222222);
+        if (obj.material && obj.material.emissive) obj.material.emissive.setHex(0x222222);
         document.getElementById('dim-sliders').style.display = 'flex'; document.getElementById('scale-slider').style.display = 'none';
         const d = obj.userData.dims;
         if(d) { 
@@ -17035,6 +17244,10 @@ const TWIN = (() => {
         // NOTHING yet — you generate each asset on demand (whole / section /
         // one) so the scene never crowds with things you didn't ask for.
         lastCompiled = compileFilm(bp);
+        // THE LEDGER (film/LEDGER.md inv. 1+7): every entity gets a row and a
+        // visible placeholder at its mark NOW — placement exists before
+        // generation; GEN can only ever swap the object inside its own row.
+        try { if (window.__ledgerCompose) __ledgerCompose(bp); } catch(e){ console.warn('[ledger]', e); }
         // LAW 2: a film is a GAME — shelve it so it appears in the PLAY games list
         try { const shelf = JSON.parse(localStorage.getItem('trig.films.v1') || '[]');
             shelf.unshift({ id: (bp.title || 'film').toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 40), title: bp.title, seed: bp.seed, bp });
