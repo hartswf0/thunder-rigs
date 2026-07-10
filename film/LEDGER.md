@@ -56,3 +56,21 @@ LEDGER[id] = {
    forging.
 5. Directability: motion verbs take entity ids; verbs listed on the row,
    shown in the graph.
+
+## Field reports driving the build (2026-07-10, western film session)
+
+7. **PLACEHOLDERS FIRST.** Composing creates a visible placeholder (ghost
+   box + name tag) at every entity's mark IMMEDIATELY — placement exists
+   before generation. GEN replaces the placeholder IN PLACE. This also ends
+   the observed bug where generating one character deleted others: every
+   entity owns its slot from t=0; generation may only ever swap the object
+   inside a row, never touch another row's object.
+8. **EVERY GENERATION IS A HELLO SUBJECT.** Any generated actor/set opens in
+   the HELLO/WORLD ritual for part-level editing (tap parts, move/rotate/
+   scale, say-a-change) — and the edit writes BACK to the row's code.
+9. **BLOCKING (the missing planning step).** Shots need marks: each shot row
+   gains actor marks {entityId → x,z,facing}; PERFORM tweens actors to their
+   marks before the camera cuts (theatre blocking), integrated with CINE's
+   existing shot drive — beat = (move to marks) + (camera) + (action verbs).
+10. **POSSESSION.** Click any cast actor → DRIVE IT (player physics binds to
+    that body; your rig parks). Click-to-possess, click-away to release.
