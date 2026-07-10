@@ -8507,7 +8507,7 @@ function __removeCastActor(id){ const a = __castActors[id]; if (!a) return;
     try { scene.remove(a.group); a.group.traverse(o => { try { o.geometry && o.geometry.dispose(); o.material && o.material.dispose && o.material.dispose(); } catch(_){} }); } catch(_){}
     delete __castActors[id]; }
 const FNCAM = { perception:'wide', action:'behind', affection:'close', opsign:'aerial', sonsign:'low', crystal:'front', recollection:'close' };
-const __RIG_SYS = 'You are a master vehicle artist for THUNDER RIGS. Reply with ONLY one JavaScript function, no fences, no prose:\nfunction build(g, VG, THREE){ ... }\nUse VG: box(w,h,d,m) cyl(r1,r2,h,m,seg) cone sphere ico torus + wheels knobbyWheel(r,w,hub)/slickWheel + materials paint(hex,{rough,metal}) matte metalMat goldMat emiss(hex,i) makeGlass + headlight(hex) glow(hex) contactShadow(w,d). Helpers INSIDE build. A drivable car-scale rig (~4x2x2 units), wheels grounded, under 200 meshes.';
+const __RIG_SYS = 'You are a master vehicle artist for THUNDER RIGS. Reply with ONLY one JavaScript function, no fences, no prose:\nfunction build(g, VG, THREE){ ... }\nHARD CONTRACT (violations = the rig is rejected):\n- Add EVERY part to the PROVIDED group g (g.add(part)). NEVER create your own root group, NEVER return a value — build() returns nothing.\n- VG.box(w,h,d,m) VG.cyl(r1,r2,h,m,seg) VG.cone VG.sphere VG.ico VG.torus(r,t,m) RETURN FINISHED MESHES (geometry+material applied). Position them and g.add them. NEVER wrap them in new THREE.Mesh, never pass them as geometry.\n- Materials: paint(hex,{rough,metal}) matte metalMat goldMat emiss(hex,i) makeGlass; details: headlight(hex) glow(hex) knobbyWheel(r,w,hub) slickWheel contactShadow(w,d).\nA drivable car-scale rig (~4x2x2 units), wheels grounded, under 200 meshes. Helpers INSIDE build.';
 const __FORT_SYS = 'You are a fortification builder for THUNDER RIGS. Reply with ONLY one JavaScript function, no fences, no prose:\nfunction build(w, WG, THREE){ ... return w; }\nOne focal structure near the origin: WG.box/cyl/cone/sphere/torus + WG.flat(hex,{rough,metal})/WG.lit(hex,i); WG.put(mesh,x,y,z,ry) places, WG.solid(mesh,w,h,d) makes it collide; under 60 meshes; all parts within 12 units of origin; WG.rand(seed) for randomness.';
 // A real, usable key means provider != thunder (the proxy is capped/unreliable)
 // AND an apiKey is set. Generation uses this — never the dead proxy.
@@ -8520,7 +8520,14 @@ window.__aiReady = __aiReady;
 // because it IS the same act. No parallel loading states.
 async function __forgeAssetCode(kind, prompt){
     if (__aiReady() && window.FORGE){
-        const sys = (kind === 'cast' ? __RIG_SYS : __FORT_SYS) + '\nDesign for: "' + String(prompt).slice(0,160) + '"';
+        // few-shot from the golden corpus — teaches the REAL format (parts added
+        // to g, VG factories returning finished meshes), which a bare contract
+        // does not: the model otherwise invents its own root and misuses VG.
+        let ex = '';
+        try { const lib = kind === 'cast' ? window.GOLDEN : window.GOLDEN_DRAFTS;
+            const gpick = lib && lib.pick(prompt);
+            if (gpick && gpick.entry && gpick.entry.code) ex = '\nEXAMPLE (imitate the FORMAT and craft, never the subject):\n' + gpick.entry.code.slice(0, 6000); } catch(_){}
+        const sys = (kind === 'cast' ? __RIG_SYS : __FORT_SYS) + ex + '\nDesign for: "' + String(prompt).slice(0,160) + '"';
         try {
             aiThinking = true;                                    // the ritual's forge weather
             try { SFX.buildStart(); } catch(_){}                  // the ritual's build drone
