@@ -453,6 +453,21 @@ body.world-light #toast{background:#101820;color:#fff}
 <body>
 
 <canvas id="gl"></canvas>
+<!-- THE LOOK (film/LOOK.md #1): css post stack — grade on the canvas, tilt-shift
+     blur bands top/bottom (the miniature-diorama feel), soft vignette. -->
+<div id="post-tilt-top" aria-hidden="true"></div>
+<div id="post-tilt-bot" aria-hidden="true"></div>
+<div id="post-vignette" aria-hidden="true"></div>
+<style>
+#gl{ filter:saturate(1.22) contrast(1.06) brightness(1.03); }
+#post-vignette{ position:fixed; inset:0; pointer-events:none; z-index:5;
+  background:radial-gradient(ellipse at 50% 42%, transparent 55%, rgba(10,6,20,.38) 100%); }
+#post-tilt-top,#post-tilt-bot{ position:fixed; left:0; right:0; height:12vh; pointer-events:none; z-index:5;
+  backdrop-filter:blur(2.6px); -webkit-backdrop-filter:blur(2.6px); }
+#post-tilt-top{ top:0; -webkit-mask-image:linear-gradient(rgba(0,0,0,1),transparent); mask-image:linear-gradient(rgba(0,0,0,1),transparent); }
+#post-tilt-bot{ bottom:0; -webkit-mask-image:linear-gradient(transparent,rgba(0,0,0,1)); mask-image:linear-gradient(transparent,rgba(0,0,0,1)); }
+body.in-ritual #post-tilt-top, body.in-ritual #post-tilt-bot{ display:none; }   /* the builder stays crisp */
+</style>
 <div id="topfade"></div>
 
 <div id="main-header">
@@ -8408,6 +8423,35 @@ window.__openFilmGraph = function(){
         updateSceneGraph();
     } catch(e){ console.warn('[film graph]', e); }
 };
+// THE FORGE BAKES (film/LOOK.md #2): Bruno bakes lightmaps in Blender; our
+// geometry is generated, so the bake happens at generation time — per-vertex
+// height ramp (dark base → lit top) + ground-contact AO written into vertex
+// colors. Zero runtime cost; every generated world/fort inherits soft depth.
+window.__forgeBake = function(root){
+    try {
+        const box = new THREE.Box3().setFromObject(root);
+        const yMin = box.min.y, span = Math.max(box.max.y - yMin, 1);
+        const v = new THREE.Vector3();
+        root.traverse(m => {
+            if (!m.isMesh || !m.geometry || !m.geometry.attributes || !m.geometry.attributes.position) return;
+            if (m.userData.__baked) return; m.userData.__baked = true;
+            const pos = m.geometry.attributes.position, cnt = pos.count;
+            if (cnt > 4096) return;                                   // instanced/huge: skip
+            const base = (m.material && m.material.color) ? m.material.color : { r: 1, g: 1, b: 1 };
+            const col = new Float32Array(cnt * 3);
+            for (let i = 0; i < cnt; i++){
+                v.fromBufferAttribute(pos, i).applyMatrix4(m.matrixWorld);
+                const h = (v.y - yMin) / span;
+                const ramp = 0.70 + 0.40 * Math.min(1, h * 1.5);      // dark base → lit top
+                const ao = v.y < 0.7 ? 0.84 : 1.0;                     // contact shadow at grade
+                const k = ramp * ao;
+                col[i*3] = base.r * k; col[i*3+1] = base.g * k; col[i*3+2] = base.b * k;
+            }
+            m.geometry.setAttribute('color', new THREE.BufferAttribute(col, 3));
+            if (m.material){ m.material = m.material.clone(); m.material.vertexColors = true; m.material.color.set(0xffffff); }
+        });
+    } catch(e){ console.warn('[bake]', e); }
+};
 function __sgItemRow(obj, indented, idx){
     const item = document.createElement('div');
     const isSel = obj.userData && obj.userData.id && sceneState.selectedId === obj.userData.id;
@@ -13370,6 +13414,7 @@ Design for: "${String(text||'').slice(0,140)}".`;
             }
         } catch(_){}
         wg.root.updateMatrixWorld(true);
+        try { window.__forgeBake && __forgeBake(wg.root); } catch(_){}   // THE FORGE BAKES (LOOK.md)
         // ── WORLDCERT admission: legality, not just cost. Bounds escapes are
         // clamped/culled, spawn blockers pushed clear, washed palettes recoloured
         // — silently. Topology failures (drivability/connectivity) can't be fixed
@@ -13592,6 +13637,7 @@ Now output ONLY the function for: "${String(text||'a bold monument').slice(0,200
         const tops = wg.root.children.slice();
         tops.forEach(c => { try { scene.attach(c); } catch(_){} });
         wg.pending.forEach(s => { s.mesh.userData.dims = s.dims; s.mesh.userData._ritualWorld = true; s.mesh.userData.type = 'wg-draft'; s.mesh.userData.__fortId = fortId; physicsMeshes.push(s.mesh); if (typeof selectableObjects!=='undefined') selectableObjects.push(s.mesh); });
+        try { if (window.__forgeBake) wg.pending.forEach(s => __forgeBake(s.mesh)); } catch(_){}   // THE FORGE BAKES (LOOK.md)
         try { if(window.__tagGeneratedGroup) window.__tagGeneratedGroup(wg.pending.map(s=>s.mesh), window.__lastDraftPrompt, 'field'); } catch(_){}
         // SHARED FORT: broadcast this fort's generation code + anchor so every peer
         // regenerates it. Forts ACCUMULATE (each keyed by fortId) — nothing is
@@ -13634,6 +13680,7 @@ Now output ONLY the function for: "${String(text||'a bold monument').slice(0,200
         const tops = wg.root.children.slice();
         tops.forEach(c => { try { scene.attach(c); } catch(_){} });
         wg.pending.forEach(s => { s.mesh.userData.dims = s.dims; s.mesh.userData._ritualWorld = true; s.mesh.userData.type = 'wg-draft'; s.mesh.userData.__fortId = fortId; physicsMeshes.push(s.mesh); if (typeof selectableObjects!=='undefined') selectableObjects.push(s.mesh); });
+        try { if (window.__forgeBake) wg.pending.forEach(s => __forgeBake(s.mesh)); } catch(_){}   // THE FORGE BAKES (LOOK.md)
         try { if(window.__tagGeneratedGroup) window.__tagGeneratedGroup(wg.pending.map(s=>s.mesh), 'shared fort', 'field'); } catch(_){}
         const tick = wg.root.userData && wg.root.userData.tick;
         if (tick){
