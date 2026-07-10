@@ -8432,6 +8432,10 @@ window.__repromptGroup = repromptGroup;
 // the real builder. No parallel modal; no crowding the scene unasked.
 const __filmBuilt = new Set();          // asset keys already generated
 const __filmCollapsed = new Set(['shots:past', 'shots:present', 'shots:future']);   // big shot lists start folded
+const __castActors = {};                // castId -> { group, name, code } — native rig actors, NOT bots
+function __removeCastActor(id){ const a = __castActors[id]; if (!a) return;
+    try { scene.remove(a.group); a.group.traverse(o => { try { o.geometry && o.geometry.dispose(); o.material && o.material.dispose && o.material.dispose(); } catch(_){} }); } catch(_){}
+    delete __castActors[id]; }
 const FNCAM = { perception:'wide', action:'behind', affection:'close', opsign:'aerial', sonsign:'low', crystal:'front', recollection:'close' };
 const __RIG_SYS = 'You are a master vehicle artist for THUNDER RIGS. Reply with ONLY one JavaScript function, no fences, no prose:\nfunction build(g, VG, THREE){ ... }\nUse VG: box(w,h,d,m) cyl(r1,r2,h,m,seg) cone sphere ico torus + wheels knobbyWheel(r,w,hub)/slickWheel + materials paint(hex,{rough,metal}) matte metalMat goldMat emiss(hex,i) makeGlass + headlight(hex) glow(hex) contactShadow(w,d). Helpers INSIDE build. A drivable car-scale rig (~4x2x2 units), wheels grounded, under 200 meshes.';
 const __FORT_SYS = 'You are a fortification builder for THUNDER RIGS. Reply with ONLY one JavaScript function, no fences, no prose:\nfunction build(w, WG, THREE){ ... return w; }\nOne focal structure near the origin: WG.box/cyl/cone/sphere/torus + WG.flat(hex,{rough,metal})/WG.lit(hex,i); WG.put(mesh,x,y,z,ry) places, WG.solid(mesh,w,h,d) makes it collide; under 60 meshes; all parts within 12 units of origin; WG.rand(seed) for randomness.';
@@ -8453,25 +8457,37 @@ async function __forgeAssetCode(kind, prompt){
 const __setAnchor = mi => { const a = mi * 2.1; return { x: Math.round(Math.cos(a) * 26), z: Math.round(Math.sin(a) * 26) }; };
 async function __genCast(i){
     const bp = TWIN.lastBlueprint; if (!bp || !bp.cast[i]) return; const c = bp.cast[i];
+    const id = 'cast-' + i, prompt = c.desc || 'a storm rig';
     notify('⚒ CASTING ' + c.name.toUpperCase() + '…');
-    try { window.BUS && BUS.say('cast a ' + (c.desc || 'keeper') + ' named ' + c.name, 'film'); } catch(_){}
-    const bot = (typeof localBots !== 'undefined') && localBots.find(x => x && x.name && x.name.toLowerCase().includes(c.name.toLowerCase()));
-    // model-forge the rig from the prompt (if a key is set); else the golden cast stands
-    const forged = await __forgeAssetCode('cast', c.desc || '');
-    if (forged && forged.real && bot){ try { const g = window.__buildVehicleFromCode(forged.src);
-        if (g){ const keep = bot.car.position.clone(); scene.remove(bot.car); bot.spec = Object.assign({}, bot.spec, { vcode: forged.src }); bot.car = buildCar(bot.spec); bot.car.position.copy(keep); scene.add(bot.car); } } catch(e){ console.warn('[gencast]', e); } }
-    // SPAWN IN FRONT + FRAME — so casting visibly puts a character before you,
-    // not off in a corner of the arena
-    if (bot && bot.car){ try {
-        const fwd = new THREE.Vector3(Math.sin(P.yaw), 0, Math.cos(P.yaw));
-        const spot = P.pos.clone().addScaledVector(fwd, 11);
-        bot.car.position.set(spot.x, 0, spot.z); if (bot.phys && bot.phys.pos) bot.phys.pos.set(spot.x, 1, spot.z);
-        camMode = 'FREE'; camera.position.copy(spot).add(new THREE.Vector3(5, 4, 9)); orbit.target.copy(spot.clone().setY(1.2));
-        try { if (typeof spark === 'function') spark(spot.clone().setY(1), 0x19e6c8, 14, 30, 12, 0.8); } catch(_){}
-    } catch(e){ console.warn('[cast place]', e); } }
+    // NATIVE HELLO generation — exactly like the rig ritual: AI vcode if a key is
+    // set, else the golden rig picked by the prompt. NO bot, NO materials economy.
+    const forged = await __forgeAssetCode('cast', prompt);
+    const code = forged && forged.src;
+    const group = code ? window.__buildVehicleFromCode(code) : null;
+    if (!group){ notify('CAST FORGE FAILED — ' + (window.__vgLastErr || '').slice(0, 40)); return; }
+    __removeCastActor(id);
+    // place as a standing actor in front of the player, facing you
+    let spot;
+    try { const fwd = new THREE.Vector3(Math.sin(P.yaw), 0, Math.cos(P.yaw)); spot = P.pos.clone().addScaledVector(fwd, 11); }
+    catch(_){ spot = new THREE.Vector3(0, 0, -11); }
+    group.position.set(spot.x, group.position.y, spot.z);
+    try { group.rotation.y = P.yaw + Math.PI; } catch(_){}
+    group.userData = Object.assign(group.userData || {}, { name: c.name, label: c.name, type: 'cast-actor', __castId: id });
+    scene.add(group);
+    __castActors[id] = { group, name: c.name, code };
+    try { camMode = 'FREE'; camera.position.copy(spot).add(new THREE.Vector3(5, 4, 9)); orbit.target.copy(spot.clone().setY(1.2)); } catch(_){}
+    try { if (typeof spark === 'function') spark(spot.clone().setY(1), 0x19e6c8, 14, 30, 12, 0.8); if (typeof SFX!=='undefined' && SFX.complete) SFX.complete(); } catch(_){}
     __filmBuilt.add('cast:' + c.name);
-    notify(bot ? ('✓ ' + c.name.toUpperCase() + ' ON SET' + (forged && forged.real ? ' · model' : ' · stand-in')) : ('CAST FAILED — ' + c.name.toUpperCase()));
+    notify('✓ ' + c.name.toUpperCase() + ' ON SET' + (forged.real ? ' · model' : ' · stand-in'));
     try { updateSceneGraph(); } catch(_){}
+}
+// become a cast actor's rig and open HELLO to edit it — "hello to cast"
+function __editCastInHello(i){
+    const id = 'cast-' + i, a = __castActors[id];
+    try { if (a && a.code) applyLoadout(Object.assign({}, myLoadout, { vcode: a.code })); } catch(e){ console.warn('[cast hello]', e); }
+    try { if (window.__openRitual) window.__openRitual(); } catch(_){}
+    const bp = TWIN.lastBlueprint; const nm = (bp && bp.cast[i] && bp.cast[i].name) || 'cast';
+    notify('EDITING ' + nm.toUpperCase() + ' IN HELLO — change it, then it is your rig');
 }
 async function __genSet(mi, form){
     const bp = TWIN.lastBlueprint; if (!bp || !bp.motifs[mi]) return; const m = bp.motifs[mi];
@@ -8631,11 +8647,11 @@ function __filmSections(list){
             g.addEventListener('click', e => { e.stopPropagation(); onGen(); }); r.appendChild(g); }
         list.appendChild(r); return r;
     };
-    // CAST
+    // CAST — native rig actors (no bots)
     if (bp.cast && bp.cast.length && !head('CAST', 'edit in HELLO', 'cast', 'cast').collapsed){
-        bp.cast.forEach((c, i) => frow(c.name.toUpperCase(), c.desc, __filmBuilt.has('cast:' + c.name) || !!findBot(c.name),
+        bp.cast.forEach((c, i) => frow(c.name.toUpperCase(), c.desc, __filmBuilt.has('cast:' + c.name) || !!__castActors['cast-' + i],
             () => __genCast(i),
-            () => { try { window.BUS && BUS.say('play as ' + c.name, 'graph'); } catch(_){} if (window.__openRitual) window.__openRitual(); notify('EDITING ' + c.name.toUpperCase() + ' in HELLO'); },
+            () => __editCastInHello(i),
             () => __editPrompt(v => { if (v != null) c.desc = v; return c.desc; }))); }
     // SET
     if (bp.motifs && bp.motifs.length && !head('THE SET', 'edit in WORLD', 'set', 'set').collapsed){
