@@ -8469,17 +8469,33 @@ const __FORT_SYS = 'You are a fortification builder for THUNDER RIGS. Reply with
 // AND an apiKey is set. Generation uses this — never the dead proxy.
 function __aiReady(){ try { const c = getAIConfig(); return c.provider !== 'thunder' && !!c.apiKey; } catch(_){ return false; } }
 window.__aiReady = __aiReady;
+// ONE OPERATIONAL SURFACE (program theory): every film generation runs through
+// the SAME machinery as the HELLO/WORLD ritual — the forge weather (aiThinking:
+// sun dims, teal sparks), the build drone (SFX.buildStart/Stop), and the AI·LOG
+// (AICON). A film asset forging looks and sounds exactly like a rig forging,
+// because it IS the same act. No parallel loading states.
 async function __forgeAssetCode(kind, prompt){
     if (__aiReady() && window.FORGE){
         const sys = (kind === 'cast' ? __RIG_SYS : __FORT_SYS) + '\nDesign for: "' + String(prompt).slice(0,160) + '"';
         try {
-            notify('◆ AI FORGING ' + kind.toUpperCase() + '…');
+            aiThinking = true;                                    // the ritual's forge weather
+            try { SFX.buildStart(); } catch(_){}                  // the ritual's build drone
+            if (window.AICON) AICON.log('FILM ⚒ ' + kind + ' · "' + String(prompt).slice(0, 48) + '"', 'ok');
             const reply = await Promise.race([ requestAIText(String(prompt), sys, null, 4000, { task: 'film-' + kind }),
                 new Promise((_, r) => setTimeout(() => r(new Error('timed out (30s)')), 30000)) ]);
             const src = FORGE.sanitize(String(reply || '')); const scan = FORGE.jsScan(src);
-            if (/function\s+build\s*\(/.test(src) && scan.brace === 0 && scan.paren === 0 && src.length > 60) return { src, real: true };
-            notify('AI returned unusable code — stand-in');
-        } catch(e){ const m = String((e && e.message) || e).slice(0, 64); window.__lastGenErr = m; notify('AI ERROR: ' + m + ' — stand-in'); console.warn('[film forge]', e); }
+            aiThinking = false; try { SFX.buildStop(); } catch(_){}
+            if (/function\s+build\s*\(/.test(src) && scan.brace === 0 && scan.paren === 0 && src.length > 60){
+                if (window.AICON) AICON.log('FILM ✓ ' + kind + ' · model-forged (' + src.length + ' chars)', 'ok');
+                return { src, real: true };
+            }
+            if (window.AICON) AICON.log('FILM ✗ ' + kind + ' · unusable code — stand-in', 'wrn');
+        } catch(e){
+            aiThinking = false; try { SFX.buildStop(); } catch(_){}
+            const m = String((e && e.message) || e).slice(0, 64); window.__lastGenErr = m;
+            notify('AI ERROR: ' + m + ' — stand-in');
+            if (window.AICON) AICON.log('FILM ✗ ' + kind + ' · ' + m, 'err');
+        }
     }
     const lib = kind === 'cast' ? window.GOLDEN : window.GOLDEN_DRAFTS;
     try { const g = lib && lib.pick(prompt); if (g && g.entry && g.entry.code) return { src: g.entry.code, real: false }; } catch(_){}
