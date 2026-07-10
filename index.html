@@ -9112,6 +9112,89 @@ function __castToBots(){
     return n;
 }
 window.__castToBots = __castToBots;
+// ── POSSESSION (LEDGER.md field report 10) — become any cast actor ──────────
+// 👁 on a cast row: your rig steps out, THEIR body becomes the one you drive
+// (same physics, same controls). ESC or 👁 again releases — the actor keeps
+// your last stance, and a botified actor resumes playing.
+window.__possessed = null;
+function __possess(id){
+    const r = window.LEDGER && LEDGER.get(id);
+    if (!r || r.kind !== 'cast' || r.id === 'you' || !r.code){ notify('nothing to possess — GEN it first'); return false; }
+    if (window.__possessed && __possessed.id === id) return __release();
+    if (window.__possessed) __release();
+    if (!r.object){ notify('no standing body — GEN it first'); return false; }
+    const prev = { spec: Object.assign({}, myLoadout), vcode: myLoadout.vcode, rp: myLoadout.rp, pos: P.pos.clone(), yaw: P.yaw };
+    const standing = r.object;
+    const isBot = !!(standing.userData && standing.userData.botId);
+    const at = { x: standing.position.x, z: standing.position.z, ry: standing.rotation.y };
+    if (isBot){ try { removeBot(standing.userData.botId); } catch(_){} r.object = null; }
+    else standing.visible = false;
+    window.__possessed = { id, prev, wasBot: isBot };
+    applyLoadout(Object.assign({}, prev.spec, { vcode: r.code, rp: undefined }), false);   // never persisted — the garage keeps YOUR rig
+    try { P.pos.set(at.x, P.pos.y, at.z); P.yaw = at.ry || 0; P.vel && P.vel.set(0, 0, 0); } catch(_){}
+    r.state = 'performing'; r.usedAt = Date.now();
+    try { if (typeof spark === 'function') spark(new THREE.Vector3(at.x, 1.2, at.z), 0xa855f7, 16, 30, 12, 0.8); if (window.SFX && SFX.complete) SFX.complete(); } catch(_){}
+    notify('👁 YOU ARE ' + r.name.toUpperCase() + ' — drive; ESC (or 👁) releases');
+    if (window.AICON) AICON.log('POSSESS · ' + r.name, 'ok');
+    try { updateSceneGraph(); } catch(_){}
+    return true;
+}
+function __release(){
+    const p = window.__possessed; if (!p) return false;
+    const r = window.LEDGER && LEDGER.get(p.id);
+    if (r){
+        // the actor keeps your last stance — placement is written where you stood
+        r.placement = { x: +P.pos.x.toFixed(2), z: +P.pos.z.toFixed(2), ry: +P.yaw.toFixed(3) };
+        if (p.wasBot){ try { const bot = deployBot({ team: 'hostile', vcode: r.code, name: r.name, pos: { x: r.placement.x, z: r.placement.z } }); if (bot) LEDGER.setObject(r.id, bot.car); } catch(_){} }
+        else if (r.object){ r.object.visible = true; r.object.position.set(P.pos.x, r.object.position.y, P.pos.z); r.object.rotation.y = P.yaw; }
+        r.state = p.wasBot ? 'performing' : 'placed';
+    }
+    applyLoadout(Object.assign({}, p.prev.spec, { vcode: p.prev.vcode, rp: p.prev.rp }), false);
+    try { P.pos.copy(p.prev.pos); P.yaw = p.prev.yaw; P.vel && P.vel.set(0, 0, 0); } catch(_){}
+    window.__possessed = null;
+    notify('RELEASED — back in your rig');
+    try { updateSceneGraph(); } catch(_){}
+    return true;
+}
+window.__possess = __possess; window.__release = __release;
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && window.__possessed) __release(); });
+// ── BLOCKING (LEDGER.md field report 9) — actors walk to marks before cuts ──
+// A camera beat is preceded by a block beat: the subject tweens to its shot's
+// stage slot (the LEDGER's sovereign shot placement — drag the mark, the
+// blocking follows). Bots re-anchor and drive there themselves.
+window.__blockTweens = [];
+function __blockTween(obj, to, dur){
+    __blockTweens.push({ obj, from: obj.position.clone(), to: new THREE.Vector3(to.x, obj.position.y, to.z), ry: to.ry, ry0: obj.rotation.y, t0: performance.now(), dur: dur || 1400 });
+    if (!window.__blockLoop){ window.__blockLoop = true;
+        const step = () => { const L = window.__blockTweens;
+            if (!L.length){ window.__blockLoop = false; return; }
+            const now = performance.now();
+            for (let i = L.length - 1; i >= 0; i--){ const tw = L[i];
+                const k = Math.min(1, (now - tw.t0) / tw.dur), e2 = k * k * (3 - 2 * k);
+                try { tw.obj.position.lerpVectors(tw.from, tw.to, e2); if (tw.ry != null) tw.obj.rotation.y = tw.ry0 + (tw.ry - tw.ry0) * e2; } catch(_){ L.splice(i, 1); continue; }
+                if (k >= 1) L.splice(i, 1); }
+            requestAnimationFrame(step); };
+        requestAnimationFrame(step); }
+}
+window.__blockTo = function(subject, shotIdx, fallbackMark){
+    try {
+        const row = window.LEDGER && LEDGER.findByName(subject);
+        if (!row || row.id === 'you' || !row.object) return 'block: no body for ' + subject;   // never puppet the player
+        const sRow = (shotIdx != null) && LEDGER.get('shot-' + shotIdx);
+        const mark = (sRow && sRow.placement) || fallbackMark;
+        if (!mark) return 'block: no mark';
+        // stand NEAR the stage (6 units toward center), facing it
+        const len = Math.hypot(mark.x || 0, mark.z || 0) || 1;
+        const px = (mark.x || 0) * (1 - 6 / len), pz = (mark.z || 0) * (1 - 6 / len);
+        const face = Math.atan2((mark.x || 0) - px, (mark.z || 0) - pz);
+        if (row.object.userData && row.object.userData.botId){
+            const bot = (typeof localBots !== 'undefined') && localBots.find(x => x.id === row.object.userData.botId);
+            if (bot){ bot.baseAnchor = new THREE.Vector3(px, 0, pz); bot.target = null; return 'blocked (bot drives): ' + subject; }
+        }
+        __blockTween(row.object, { x: px, z: pz, ry: face }, 1400);
+        return 'blocked ' + subject + ' → S' + ((shotIdx | 0) + 1);
+    } catch(e){ return 'block err'; }
+};
 // become a cast actor's rig and open HELLO to edit it — "hello to cast"
 function __editCastInHello(i){
     const id = 'cast-' + i, a = __castActors[id];
@@ -9389,10 +9472,20 @@ function __filmSections(list){
         vs.title = 'cast as BOTS — then open GAMES and play striker/flag against your characters';
         vs.addEventListener('click', e => { e.stopPropagation(); __castToBots(); });
         hd.el.appendChild(vs);
-        if (!hd.collapsed) bp.cast.forEach((c, i) => frow(c.name.toUpperCase(), c.desc, rowState('cast-' + i, __filmBuilt.has('cast:' + c.name) || !!__castActors['cast-' + i]),
-            () => __genCast(i),
-            () => __editCastInHello(i),
-            () => __editPrompt(v => { if (v != null) c.desc = v; return c.desc; }))); }
+        if (!hd.collapsed) bp.cast.forEach((c, i) => {
+            const st = rowState('cast-' + i, __filmBuilt.has('cast:' + c.name) || !!__castActors['cast-' + i]);
+            const rowEl = frow(c.name.toUpperCase(), c.desc, st,
+                () => __genCast(i),
+                () => __editCastInHello(i),
+                () => __editPrompt(v => { if (v != null) c.desc = v; return c.desc; }));
+            if (st === 'placed' || st === 'performing'){
+                const po = document.createElement('button'); po.className = 'sg-fbtn ghost';
+                const mine = window.__possessed && __possessed.id === 'cast-' + i;
+                po.textContent = mine ? '⏏' : '👁'; po.title = mine ? 'release — back to your rig' : 'POSSESS — drive this actor (ESC releases)';
+                po.addEventListener('click', e => { e.stopPropagation(); window.__possess && __possess('cast-' + i); });
+                rowEl.appendChild(po);
+            }
+        }); }
     // SET
     if (bp.motifs && bp.motifs.length && !head('THE SET', 'edit in WORLD', 'set', 'set').collapsed){
         bp.motifs.forEach((m, mi) => ['past','present','future'].forEach(form => {
@@ -17258,6 +17351,9 @@ const TWIN = (() => {
                         if (row){ row.state = 'performing'; row.usedAt = Date.now(); return 'kept cast: ' + nm + ' (ledger)'; } }
                     if (nm && typeof __castActors !== 'undefined' && Object.values(__castActors).some(a => a && a.name && a.name.toLowerCase() === nm.toLowerCase())) return 'kept cast: ' + nm; } catch(_){}
             }
+            // BLOCKING (field report 9): the subject walks to its shot's mark
+            // BEFORE the camera cuts — resolved through the ledger at fire time.
+            if (b.kind === 'block') return window.__blockTo ? __blockTo(b.subject, b.shotIdx, b.mark) : 'no blocking';
             if ((b.kind === 'say' || b.kind === 'motion') && b.prompt) return BUS.say(b.prompt, 'twin');
             if (b.kind === 'cue' && b.prompt) {   // sound design: the sonic lexicon -> the SFX engine
                 const s = String(b.prompt).toLowerCase();
@@ -17701,6 +17797,8 @@ const TWIN = (() => {
             const subj = (b.subject || (bp.cast && bp.cast[0] && bp.cast[0].name) || 'me').toLowerCase();
             const cam = b.fn === 'recollection' && bp.beats[i - 2] ? (FN_CAM[bp.beats[i - 2].fn] || 'wide') : FN_CAM[fn];
             if (b.transition !== 'hold') {
+                // theatre blocking: move to marks, THEN the camera cuts (report 9)
+                beats.push({ at: +(t + 0.05).toFixed(1), kind: 'block', subject: subj, shotIdx: i, why: { fn: b.fn } });
                 beats.push({ at: +(t + 0.2).toFixed(1), kind: 'say', prompt: 'camera ' + cam + ' on ' + subj, why: { fn: b.fn, beat: b.title } });
                 beats.push({ at: +(t + 0.8).toFixed(1), kind: 'say', prompt: 'mark a ' + cam + ' shot on ' + subj, why: { fn: b.fn } });
             }
